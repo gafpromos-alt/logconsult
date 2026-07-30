@@ -104,11 +104,19 @@ CLIENTES = {
 }
 
 
-_FTOK_SINONIMOS = {"PRO": "PRODUTO"}  # achado 22/jul/2026: tarifas_praticadas/ipoa_teto gravam
+_FTOK_SINONIMOS = {"PRO": "PRODUTO", "TORETES": "TORETE"}
+# PRO→PRODUTO — achado 22/jul/2026: tarifas_praticadas/ipoa_teto gravam
 # "PRO SIDERURGICO" (abreviado) pra GERDAU/ARCELORMITTAL/USIMINAS/APERAM, mas volume_hist grava
 # "PRODUTO SIDERURGICO" por extenso — sem o sinônimo, o match falhava pra TODAS as rotas "PRO
 # SIDERURGICO" desses 4 clientes, caindo no fallback genérico (mesmo volume repetido em toda
 # rota — sintoma reportado pelo usuário: "volumes da APERAM estão replicados").
+# TORETES→TORETE — achado 30/jul/2026 (CENIBRA, "volume dos fluxos de torete não aparecem na
+# simulação de manobras"): singular/plural varia entre as fontes da mesma mercadoria física
+# (a curadoria/planilha grava "TORETE", a mineração F-LINK grava "TORETES" — divergência
+# confirmada dentro deste próprio repo, add_cenibra_precos_contratuais.py vs FLUXO_NOME do
+# connect) — sem o sinônimo, o volume_hist de qualquer variante nunca casa com a rota de
+# torete e o volume_ano_ktu fica None. Sinônimo de GRAFIA da mesma mercadoria (nunca pooling
+# de produtos diferentes): nenhuma outra família de produto da base começa com "TORETE".
 
 
 def _ftok(produto):

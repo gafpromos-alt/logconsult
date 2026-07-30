@@ -2214,7 +2214,7 @@ if(D.comparativo && D.comparativo.tarifas){
     if(/ACUCAR/.test(p)) c.push('ACUCAR');
     if(/FERTIL|ADUBO|ROCHA FOS/.test(p)) c.push('ADUBOS E FERTILIZANTES','FERTILIZANTES');
     if(/CELULOSE/.test(p)) c.push('CELULOSE');
-    if(/TORETES|MADEIRA/.test(p)) c.push('TORAS DE MADEIRA');
+    if(/TORETE|MADEIRA/.test(p)) c.push('TORAS DE MADEIRA');  // TORETE cobre TORETE e TORETES (30/jul/2026 — fluxos curados usam o singular)
     if(/MINERIO|PELOTAS/.test(p)) c.push('MINERIO DE FERRO');
     if(/FERRO GUSA/.test(p)) c.push('FERRO GUSA');
     // Carvão mineral, antracito e coque (incl. coque grosso/fino/petróleo/verde de petróleo)
@@ -2634,7 +2634,15 @@ if(D.comparativo && D.comparativo.tarifas){
   // batem (nem por prefixo — nenhum é truncamento do outro), caindo em "sem dado". "ROCHA" nunca
   // aparece como mercadoria em volume_hist pra NENHUM cliente da base (checado), então o sinônimo
   // é seguro (não pode colidir com um "ROCHA" físico diferente de fosfato).
-  const _PROD_SINONIMOS={PRO:'PRODUTO', ROCHA:'FOSFATO'};
+  // achado do usuário (30/jul/2026, "CENIBRA: volume dos fluxos de torete não aparecem na
+  // simulação de manobras"): singular/plural da MESMA mercadoria física varia entre as fontes —
+  // a curadoria/planilha grava "TORETE" (fluxos "TORETE VDD VFS"/"TORETE VCS VFS"), a mineração
+  // F-LINK grava "TORETES" (add_cenibra_precos_contratuais.py), e volume_hist pode trazer
+  // qualquer variante (com ou sem complemento "DE MADEIRA") — sem normalizar o 1º token, o
+  // match de volume da rota falha. Sinônimo de GRAFIA (mesma classe do PRO→PRODUTO), não
+  // pooling: nenhuma outra família de produto da base começa com "TORETE". Manter em sincronia
+  // com _FTOK_SINONIMOS (add_demais_clientes_fluxos_completos.py) e audit_volumes.py.
+  const _PROD_SINONIMOS={PRO:'PRODUTO', ROCHA:'FOSFATO', TORETES:'TORETE'};
   // REVERTIDO (23/jul/2026, achado do usuário: "GERDAU volumes... últimos 12 meses vários
   // volumes repetidos e que não fazem sentido") — a "família carvão/coque/antracito" abaixo
   // tinha sido adicionada nesta mesma sessão pra dimensionar a MANOBRA (custo/investimento

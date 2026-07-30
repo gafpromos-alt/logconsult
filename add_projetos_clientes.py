@@ -53,12 +53,14 @@ def _raw(sheet):
 
 
 # ---------------------------------------------------------------- formato A: multi-fluxo em colunas
-def parse_multiflow(sheet, cliente, itens_abertura, vigencia_row=11):
+def parse_multiflow(sheet, cliente, itens_abertura, vigencia_row=11, rename=None):
     df = _raw(sheet)
     flows = [c for c in range(2, df.shape[1]) if pd.notna(df.iat[2, c])]
     flow_tarifas, flow_abertura = [], []
     for c in flows:
         fluxo = str(df.iat[2, c]).strip()
+        if rename:
+            fluxo = rename.get(fluxo.upper(), fluxo)
         vig = df.iat[vigencia_row, 2] if c == flows[0] else None  # vigência costuma ser 1 valor só (col2), não por fluxo
         flow_tarifas.append({
             "cliente": cliente, "fluxo": fluxo,
@@ -203,6 +205,24 @@ def parse_captura_mosaic():
 
 ITENS_CMOC_GERDAU = [(14, "Manobra destino"), (15, "Manobra origem"), (17, "DP Rumo"), (18, "DP MRS")]
 ITENS_CENIBRA = [(14, "Manobra origem"), (15, "Manobra destino")]
+
+# Nomes de fluxo da aba Cenibra → nomes ROTA-CODIFICADOS ("PRODUTO ORIGEM DESTINO"), achado do
+# usuário (30/jul/2026: "volume dos fluxos de torete não aparecem na simulação de manobras").
+# Causa raiz: a planilha nomeia os fluxos de torete só com a ORIGEM ("TORETE VDD", "TORETE VCS"
+# — 2 tokens), e toda a cadeia de volume casa rota pelo NOME do fluxo (fluxoRota() no front usa
+# os 2 últimos tokens como origem/destino; _fluxo_od() em build_painel.py usa a MESMA convenção
+# pra decidir quais trios cliente×origem×destino entram no payload de volume mensal). Com 2
+# tokens, o front não parseia rota nenhuma (volume honesto-0 pra sempre) e o build gera o trio
+# lixo ("TORETE","VDD") — o volume real da rota nem chega ao payload. Destinos confirmados na
+# fonte F-LINK (add_cenibra_precos_contratuais.py: 19332 VDD→VFS, 19334 VCS→VFS — destino VFS
+# também confirmado pelo usuário). "CELULOSE VFS vaz": só normaliza a CAIXA do "vaz" (trio é
+# case-sensitive na base toda; a direção curada VFS→VAZ fica como está). Chaves em UPPER pra
+# casar qualquer variação de caixa da célula da planilha.
+FLUXO_RENAME_CENIBRA = {
+    "TORETE VDD": "TORETE VDD VFS",
+    "TORETE VCS": "TORETE VCS VFS",
+    "CELULOSE VFS VAZ": "CELULOSE VFS VAZ",
+}
 ITENS_SELECTA = [(10, "Manobra conexão cheio"), (11, "Manobra destino"), (12, "Manobra origem"),
                   (13, "Direito de passagem"), (15, "Direito de passagem MRS")]
 ITENS_LD = [(12, "Manobra destino"), (13, "Manobra origem")]
@@ -213,7 +233,7 @@ def main():
 
     t, a = parse_multiflow("CMOC", "CMOC", ITENS_CMOC_GERDAU); tarifas += t; abertura += a
     t, a = parse_multiflow("Gerdau", "GERDAU", ITENS_CMOC_GERDAU); tarifas += t; abertura += a
-    t, a = parse_multiflow("Cenibra", "CENIBRA", ITENS_CENIBRA); tarifas += t; abertura += a
+    t, a = parse_multiflow("Cenibra", "CENIBRA", ITENS_CENIBRA, rename=FLUXO_RENAME_CENIBRA); tarifas += t; abertura += a
     t, a = parse_singleflow("Selecta", "SELECTA", 9, ITENS_SELECTA); tarifas += t; abertura += a
     t, a = parse_singleflow("Selecta retro", "SELECTA (retroativo)", 9, ITENS_SELECTA); tarifas += t; abertura += a
     t, a = parse_singleflow("LD", "LD CELULOSE", 11, ITENS_LD, vol_row=9); tarifas += t; abertura += a
@@ -381,6 +401,22 @@ def main():
     add_arcelormittal_precos_contratuais.main()
     import connect_arcelormittal_precos
     connect_arcelormittal_precos.main()
+
+    # CENIBRA: mesmo gap do USIMINAS/ARCELORMITTAL — connect_cenibra_precos.py e
+    # add_cenibra_precos_contratuais.py existiam no repo (revisados/aplicados na conversa
+    # principal em 14-18/jul) mas NUNCA foram chamados por este orquestrador: a cada rodada
+    # o replace de projeto_fluxo_tarifas/projeto_acessorias_abertas apagava a reconciliacao
+    # F-LINK da CENIBRA (tarifa reajuste-a-reajuste + abertura de manobra por item + fluxos
+    # 14399/19330), que so voltava se alguem lembrasse de rodar o connect na mao. Achado ao
+    # revisar a aba Cenibra (pedido do usuario, 30/jul/2026: "volume dos fluxos de torete nao
+    # aparecem na simulacao de manobras"). Roda por ultimo, mesma posicao do
+    # USIMINAS/ARCELORMITTAL; dados vem hardcoded do script (idempotente, sem dependencia
+    # externa), e o connect tambem migra os nomes de fluxo legados (sem rota) pros
+    # rota-codificados — ver FLUXO_RENAME_CENIBRA acima e connect_cenibra_precos.py.
+    import add_cenibra_precos_contratuais
+    add_cenibra_precos_contratuais.main()
+    import connect_cenibra_precos
+    connect_cenibra_precos.main()
 
     # Salvaguarda permanente (24/jul/2026, pedido do usuario apos 7 rounds da MESMA classe
     # de bug — "volume ultimos 12 meses" borrowed/fabricado por cliente-a-cliente reportado

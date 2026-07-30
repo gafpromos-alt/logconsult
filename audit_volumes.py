@@ -49,7 +49,11 @@ from canon import canon  # noqa: E402
 
 # ---------------------------------------------------------------- utilidades
 
-_PROD_SINONIMOS = {"PRO": "PRODUTO"}
+# Réplica do _PROD_SINONIMOS do painel_template.html — MANTER EM SINCRONIA (a réplica
+# estava defasada: faltava ROCHA→FOSFATO, adicionado no front em 27/jul/2026; TORETES→TORETE
+# entrou nos dois lados em 30/jul/2026, achado CENIBRA "volume dos fluxos de torete não
+# aparecem na simulação de manobras" — singular/plural da mesma mercadoria entre fontes).
+_PROD_SINONIMOS = {"PRO": "PRODUTO", "ROCHA": "FOSFATO", "TORETES": "TORETE"}
 _ITEM_RE = re.compile(r"\(ITEM\s+\S+?\)", re.I)
 _MERC_GRADE_SUFFIX_RE = re.compile(r"\s*-\s+\S+$")
 
