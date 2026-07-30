@@ -213,9 +213,10 @@ ITENS_CENIBRA = [(14, "Manobra origem"), (15, "Manobra destino")]
 # os 2 últimos tokens como origem/destino; _fluxo_od() em build_painel.py usa a MESMA convenção
 # pra decidir quais trios cliente×origem×destino entram no payload de volume mensal). Com 2
 # tokens, o front não parseia rota nenhuma (volume honesto-0 pra sempre) e o build gera o trio
-# lixo ("TORETE","VDD") — o volume real da rota nem chega ao payload. Destinos confirmados na
-# fonte F-LINK (add_cenibra_precos_contratuais.py: 19332 VDD→VFS, 19334 VCS→VFS — destino VFS
-# também confirmado pelo usuário). "CELULOSE VFS vaz": só normaliza a CAIXA do "vaz" (trio é
+# lixo ("TORETE","VDD") — o volume real da rota nem chega ao payload. Rotas confirmadas na
+# fonte F-LINK (add_cenibra_precos_contratuais.py: 19332 VDD→VFS, 19334 VCS→VFS) e pelo
+# usuário (30/jul/2026: origens VDD e VCS — corrigindo o "VAZ" do pedido original — com o
+# mesmo destino VFS). "CELULOSE VFS vaz": só normaliza a CAIXA do "vaz" (trio é
 # case-sensitive na base toda; a direção curada VFS→VAZ fica como está). Chaves em UPPER pra
 # casar qualquer variação de caixa da célula da planilha.
 FLUXO_RENAME_CENIBRA = {
