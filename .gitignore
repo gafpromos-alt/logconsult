@@ -1,0 +1,16 @@
+# Banco de dados real (dado financeiro/contratual de cliente — nunca versionar)
+logconsult.db
+logconsult.db.bak
+logconsult.db.bak_*
+*.bak_pre_*
+
+# Painel final: o HTML compilado carrega todo o payload de dados dos clientes
+# embutido no JSON (não é só código) — nunca versionar, só o template.
+Painel_LogconsultOS.html
+
+# Arquivos temporários de captura/print usados durante o desenvolvimento
+_shot_*.html
+painel_template.html.bak*
+
+# Sistema
+.DS_Store

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "painel-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8749", "--directory", "/Users/gabrielfonseca/Library/CloudStorage/OneDrive-Pessoal/Logconsult/03_Produto_LogconsultOS/08_Banco_Analitico"],
+      "port": 8749
+    }
+  ]
+}
