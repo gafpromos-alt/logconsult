@@ -14,3 +14,7 @@ painel_template.html.bak*
 
 # Sistema
 .DS_Store
+
+# Bytecode Python (gerado por import/py_compile — artefato, nunca fonte)
+__pycache__/
+*.pyc
