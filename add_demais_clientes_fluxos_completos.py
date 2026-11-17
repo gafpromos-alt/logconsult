@@ -101,6 +101,17 @@ CLIENTES = {
     "COPERSUCAR": "add",
     "TEREOS": "add",
     "LDC": "add",
+    # PENTE-FINO nov/2026 (análise da plataforma, item 4.1): os maiores clientes da VLI sem painel
+    # — CARGILL R$875mi, ADM R$754mi, BUNGE R$649mi, COFCO R$346mi de receita 2025 (24% da VLI),
+    # mais CHS, AMAGGI e VITERRA. Dado bruto já carregado (teto, serviços, tarifa praticada);
+    # curadoria genérica sem filmar nada. Abertura item a item vem depois, por vídeo F-LINK.
+    "CARGILL": "add",
+    "ADM": "add",
+    "BUNGE": "add",
+    "COFCO": "add",
+    "CHS": "add",
+    "AMAGGI": "add",
+    "VITERRA": "add",
 }
 
 
