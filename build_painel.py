@@ -908,9 +908,23 @@ panor["margem_pct"]=(panor["m"]*100).round(0); panor["rec_bi"]=(panor["rec"]/1e9
 panor["tarifa_media"]=panor["tarifa_media"].round(1)
 
 # ------------------------------------------------------------ CONTRATOS EXPIRANDO
-contr = q("""SELECT cliente,origem,destino,produto,vigencia,frete_trackage AS frete,
+contr = q("""SELECT item,cliente,origem,destino,produto,vigencia,frete_trackage AS frete,
                     demais_servicos AS acess, teto, km_rota
              FROM tarifas_praticadas WHERE vigencia IS NOT NULL""")
+# 40 linhas de tarifas_praticadas vêm sem origem/destino/produto (só o item) e a aba Contratos
+# mostrava "null→null" (pente-fino lote 5, nov/2026). Completa pelo item em fluxos_servico (28
+# de 40 casam); o resto fica explícito como "rota não informada" no painel.
+_fs_item = q("""SELECT itens AS item, MIN(origem) origem, MIN(destino) destino, MIN(produto) produto
+                FROM fluxos_servico WHERE origem IS NOT NULL GROUP BY itens""")
+_fs_item = {int(r.item): (r.origem, r.destino, r.produto) for r in _fs_item.itertuples()
+            if str(r.item).replace(".0", "").isdigit()}
+for _i, _r in contr[contr["origem"].isna()].iterrows():
+    try:
+        _m = _fs_item.get(int(_r["item"]))
+    except (TypeError, ValueError):
+        _m = None
+    if _m:
+        contr.loc[_i, ["origem", "destino", "produto"]] = list(_m)
 contr["cliente"] = contr["cliente"].map(canon)
 for c in ["frete","acess","teto","km_rota"]:
     contr[c]=pd.to_numeric(contr[c], errors="coerce")
@@ -925,7 +939,7 @@ _hoje = pd.Timestamp.today().normalize()
 contr["vig_dt"] = pd.to_datetime(contr["vigencia"], errors="coerce")
 contr_vencidos = int((contr["vig_dt"] < _hoje).sum())
 contr_venc_2026 = int(((contr["vig_dt"] >= _hoje) & (contr["vig_dt"] <= pd.Timestamp("2026-12-31"))).sum())
-contr_lista=contr.sort_values("vigencia")[["cliente","origem","destino","produto",
+contr_lista=contr.sort_values("vigencia")[["item","cliente","origem","destino","produto",
              "vigencia","tarifa_total","teto","pct_teto","alvo"]].round(2)
 
 # -------------------------------------------------- MERCADO: frete / valor da carga
@@ -1029,13 +1043,17 @@ try:
                    HAVING SUM(rec_fr)>0 AND SUM(vol_tu)>=10000""")
     for _df in (_hist_v, _hist_p):
         _df["cli_up"] = _df["cliente"].astype(str).str.upper()
+        # Pente-fino lote 3 (nov/2026): casamento por cliente CANÔNICO, não por trecho do nome.
+        # Antes: `cli_up.str.contains(1º token)` — "ALE" absorvia "VALE", "BP" (BP
+        # Comercializadora) absorvia "BP Bioenergy", "NOVA" (Nova Agri) absorvia "GNOVA": o
+        # histórico de 3 clientes do Painel misturava volume e preço de outras empresas.
+        _df["cli_canon"] = _df["cliente"].map(lambda c: canon(c) if c is not None else None)
         # mercadoria base (tira sufixo tipo " - SPC"/" - HIPRO"/"- HIPRO" do P&L)
         _df["merc"] = _df["mercadoria"].astype(str).str.split("-").str[0].str.strip()
     _hist_rows = []
     for _cli in _cli_canon:
-        _cu = _cli.upper().split()[0]   # primeiro token (SELECTA, CMOC, GERDAU...)
-        _v = _hist_v[_hist_v["cli_up"].str.contains(_cu, regex=False)]
-        _p = _hist_p[_hist_p["cli_up"].str.contains(_cu, regex=False)].copy()
+        _v = _hist_v[_hist_v["cli_canon"] == _cli]
+        _p = _hist_p[_hist_p["cli_canon"] == _cli].copy()
         _vg = _v.groupby(["ano","origem","destino","merc"], as_index=False)["vol_kt"].sum()
         if len(_p):
             _pg = (_p.groupby(["ano","origem","destino","merc"], as_index=False)[["rec","vol"]].sum())
@@ -1067,11 +1085,11 @@ try:
                GROUP BY cliente, origem, destino, mercadoria, ano, mes
                HAVING SUM(vol_tu)>=1000 AND SUM(rec_total)>0""")
     _hm["cli_up"] = _hm["cliente"].astype(str).str.upper()
+    _hm["cli_canon"] = _hm["cliente"].map(lambda c: canon(c) if c is not None else None)  # idem
     _hm["merc"] = _hm["mercadoria"].astype(str).str.split("-").str[0].str.strip()
     _hm_rows = []
     for _cli in _cli_canon:
-        _cu = _cli.upper().split()[0]
-        _d = _hm[_hm["cli_up"].str.contains(_cu, regex=False)].copy()
+        _d = _hm[_hm["cli_canon"] == _cli].copy()
         if not len(_d):
             continue
         _g = _d.groupby(["origem", "destino", "merc", "ano", "mes"], as_index=False)[
@@ -1701,12 +1719,229 @@ try:
 except Exception:
     premissas_manobra_graos = []
 
+# ================= PENTE-FINO nov/2026: frescor, reajustes de todos, porto, rotas inativas =================
+import re as _re
+
+def _iso_dt(s):
+    """'2026-07-10', '2026-07-10 00:00:00', '10/07/2026' -> '2026-07-10' | None."""
+    if s is None or (isinstance(s, float) and np.isnan(s)):
+        return None
+    s = str(s).strip()
+    m = _re.match(r"^(\d{2})/(\d{2})/(\d{4})", s)
+    if m:
+        return f"{m[3]}-{m[2]}-{m[1]}"
+    m = _re.match(r"^(\d{4}-\d{2}-\d{2})", s)
+    return m[1] if m else None
+
+# ---- 1) Rastreador de reajustes: TODAS as tabelas *_precos_contratuais (antes só GERDAU) ----
+# Cada linha = uma vigência de um item ferroviário. Componentes normalizados em frete, manobra
+# origem, manobra destino e "outros" (DP, transbordo, descarga, conexão, limpeza...). `soma_ok`
+# marca linha em que frete+componentes fecha com a tarifa (±R$0,05); `suspeita` marca frete
+# menor que a maior manobra e < 30% da tarifa — padrão de coluna trocada na transcrição
+# (ex.: VIBRA 15686 em 2025). Linha suspeita fica visível, mas fora das medianas.
+_REAJ_FONTES = {
+    "gerdau": "GERDAU", "ipiranga": "IPIRANGA", "cmoc": "CMOC", "alz": "ALZ", "agrex": "AGREX",
+    "novaagri": "NOVA AGRI", "mosaic": "MOSAIC", "usiminas": "USIMINAS",
+    "arcelormittal": "ARCELORMITTAL", "aperam": "APERAM", "vibra": "VIBRA", "raizen": "RAIZEN",
+    "alesat": "ALE", "cenibra": "CENIBRA", "suzano": "SUZANO", "ldcelulose": "LD CELULOSE",
+    "petrobahia": "PETROBAHIA", "petronac": "PETRONAC COMBUSTIVEIS", "sabba": "PETROLEO SABBA",
+}
+_reaj_rows = []
+for _k, _cli in _REAJ_FONTES.items():
+    try:
+        _t = q(f"SELECT * FROM {_k}_precos_contratuais")
+    except Exception:
+        continue
+    _comp_cols = [c for c in _t.columns if c.endswith("_rs_t") and c not in
+                  ("frete_rs_t", "manobra_origem_rs_t", "manobra_destino_rs_t")
+                  and not c.startswith("frete_")]   # frete_fca/frete_efvm = abertura do frete
+    for _, r in _t.iterrows():
+        _out = sum(float(r[c]) for c in _comp_cols if pd.notna(r[c]))
+        _reaj_rows.append({
+            "cliente": _cli, "item_ferroviario": r.get("item_ferroviario"), "contrato": r.get("contrato"),
+            "origem": r.get("origem"), "destino": r.get("destino"), "produto": r.get("produto"),
+            "vigencia_inicial": _iso_dt(r.get("vigencia_inicial")),
+            "vigencia_final": _iso_dt(r.get("vigencia_final")) if "vigencia_final" in _t.columns else None,
+            "valor_tr_antt": r.get("valor_tr_antt"), "tarifa_contrato": r.get("tarifa_contrato"),
+            "frete_rs_t": r.get("frete_rs_t"), "manobra_origem_rs_t": r.get("manobra_origem_rs_t"),
+            "manobra_destino_rs_t": r.get("manobra_destino_rs_t"), "outros_rs_t": round(_out, 2)})
+try:   # açúcar: tabela única com cliente na linha e colunas sem sufixo
+    _t = q("SELECT * FROM acucar_novos_clientes_precos_contratuais")
+    for _, r in _t.iterrows():
+        _out = sum(float(r[c]) for c in ("transbordo_origem", "dp_allmp", "dp_mrs") if pd.notna(r[c]))
+        _reaj_rows.append({
+            "cliente": canon(r["cliente"]), "item_ferroviario": r["item"], "contrato": r["contrato"],
+            "origem": r["origem"], "destino": str(r["destino"]).split("-")[0].replace("IC2", "ICZ"),
+            "produto": "ACUCAR", "vigencia_inicial": _iso_dt(r["vigencia_inicial"]),
+            "vigencia_final": _iso_dt(r["vigencia_final"]), "valor_tr_antt": r["valor_tr_antt"],
+            "tarifa_contrato": r["tarifa_contrato"], "frete_rs_t": r["frete"],
+            "manobra_origem_rs_t": r["manobra_origem"], "manobra_destino_rs_t": r["manobra_destino"],
+            "outros_rs_t": round(_out, 2)})
+except Exception:
+    pass
+try:   # SELECTA farelo EBJ→IUF
+    _t = q("SELECT * FROM selecta_farelo_precos_contratuais")
+    for _, r in _t.iterrows():
+        _out = sum(float(r[c]) for c in ("manobra_conexao_cheio", "dp_allmp", "dp_mrs") if pd.notna(r[c]))
+        _reaj_rows.append({
+            "cliente": "SELECTA", "item_ferroviario": r["item"], "contrato": r["contrato"],
+            "origem": "EBJ", "destino": "IUF", "produto": "FARELO DE SOJA",
+            "vigencia_inicial": _iso_dt(r["vigencia_inicial"]), "vigencia_final": _iso_dt(r["vigencia_final"]),
+            "valor_tr_antt": r["valor_tr_antt"], "tarifa_contrato": r["tarifa_contrato"],
+            "frete_rs_t": r["frete"], "manobra_origem_rs_t": r["manobra_origem"],
+            "manobra_destino_rs_t": r["manobra_destino"], "outros_rs_t": round(_out, 2)})
+except Exception:
+    pass
+_reaj = pd.DataFrame(_reaj_rows)
+if len(_reaj):
+    for _c in ("valor_tr_antt", "tarifa_contrato", "frete_rs_t", "manobra_origem_rs_t",
+               "manobra_destino_rs_t", "outros_rs_t"):
+        _reaj[_c] = pd.to_numeric(_reaj[_c], errors="coerce")
+    _reaj["produto"] = _reaj["produto"].astype(str).str.upper().str.strip()
+    _reaj["fluxo"] = _reaj["produto"] + " " + _reaj["origem"].astype(str) + " " + _reaj["destino"].astype(str)
+    _soma = (_reaj["frete_rs_t"].fillna(0) + _reaj["manobra_origem_rs_t"].fillna(0)
+             + _reaj["manobra_destino_rs_t"].fillna(0) + _reaj["outros_rs_t"].fillna(0))
+    _reaj["soma_ok"] = (_soma - _reaj["tarifa_contrato"]).abs() <= 0.05
+    _manmax = _reaj[["manobra_origem_rs_t", "manobra_destino_rs_t"]].max(axis=1)
+    _reaj["suspeita"] = (_reaj["frete_rs_t"] < _manmax) & (_reaj["frete_rs_t"] < 0.3 * _reaj["tarifa_contrato"])
+    _reaj = _reaj.drop_duplicates().sort_values(["cliente", "item_ferroviario", "vigencia_inicial"],
+                                                ascending=[True, True, False])
+    if "projetos_clientes" in dir():
+        projetos_clientes["reajustes"] = rec(_reaj.round(2))
+REAJ_RESUMO = {"vigencias": int(len(_reaj)), "itens": int(_reaj["item_ferroviario"].nunique()) if len(_reaj) else 0,
+               "clientes": int(_reaj["cliente"].nunique()) if len(_reaj) else 0}
+
+# ---- 2) Frescor: data-base de cada fonte (antes o painel só mostrava a data do build) ----
+def _ym(v):
+    v = int(v) if v is not None and not pd.isna(v) else None
+    return f"{v // 100}-{v % 100:02d}" if v else None
+_db_vol = q("SELECT MAX(ano*100+mes) m FROM volume_hist WHERE realizado_ktu>0")["m"].iloc[0]
+_db_pnl_real = q("SELECT MAX(ano*100+mes) m FROM vli_pnl WHERE panorama LIKE '%Real%'")["m"].iloc[0]
+_hoje_iso = datetime.date.today().isoformat()
+_vi_max = max((v for v in (_reaj["vigencia_inicial"] if len(_reaj) else []) if v and v <= _hoje_iso), default=None)
+def _mtime(p):
+    try:
+        return datetime.datetime.fromtimestamp(pathlib.Path(p).stat().st_mtime).strftime("%Y-%m-%d")
+    except Exception:
+        return None
+_VLI_DIR = pathlib.Path(__file__).resolve().parent.parent / "07_Dados VLI"
+DATA_BASE = {
+    "volume_ate": _ym(_db_vol),
+    "pnl_real_ate": _ym(_db_pnl_real),
+    "pnl_2026": "Tendência 6+6 (jan–jul tratados como realizado)",
+    "precos_contratuais_ate": _vi_max,
+    "banco_em": _mtime(DB) if "DB" in dir() else None,
+    "arquivos": {n: _mtime(_VLI_DIR / n) for n in (
+        "24_25_26.xlsx", "BaseHistoricaFerrovia-2013-1-2025-9.xlsx", "IPOA.xlsx",
+        "Fluxos Graos - Abertura por  serviço 23-04-2026 (1).xlsx")},
+}
+
+# ---- 3) Porto e Serviços Acessórios por cliente (23% da receita VLI, sem análise até nov/2026) ----
+# Porto: R$/t de cada cliente por UF portuária × produto (P&L 2025 Real), contra o MENOR e a
+# MEDIANA dos OUTROS clientes no mesmo porto/produto (o próprio cliente nunca é seu par — mesma
+# regra das acessórias). Oportunidade = (R$/t − menor par) × volume, só com ≥2 clientes.
+_po = q("""SELECT cliente, origem AS uf, mercadoria AS produto, SUM(rec_total) rec, SUM(vol_tu) vol
+           FROM vli_pnl WHERE modal='Porto' AND panorama LIKE '2025%Real%'
+           GROUP BY cliente, origem, mercadoria""")
+_po["cliente"] = _po["cliente"].map(canon)
+_po = _po.groupby(["cliente", "uf", "produto"], as_index=False)[["rec", "vol"]].sum()
+_po = _po[_po["vol"] >= 1000].copy()
+_po["rs_t"] = _po["rec"] / _po["vol"]
+_po_rows = []
+for (_uf, _pr), _g in _po.groupby(["uf", "produto"]):
+    for _, r in _g.iterrows():
+        _out = _g[_g["cliente"] != r["cliente"]]
+        _min = float(_out["rs_t"].min()) if len(_out) else None
+        _med = float(_out["rs_t"].median()) if len(_out) else None
+        _gap = (r["rs_t"] - _min) if _min is not None else None
+        _po_rows.append({"cliente": r["cliente"], "uf": _uf, "produto": _pr,
+                         "rec_mi": r["rec"] / 1e6, "vol_kt": r["vol"] / 1e3, "rs_t": r["rs_t"],
+                         "n_pares": int(len(_out)), "min_pares": _min, "med_pares": _med,
+                         "min_cliente": _out.loc[_out["rs_t"].idxmin(), "cliente"] if len(_out) else None,
+                         "gap_min": _gap,
+                         "oport_mi": max(0.0, _gap) * r["vol"] / 1e6 if _gap is not None else 0.0,
+                         "alvo": bool(is_alvo(r["cliente"]))})
+_sa = q("""SELECT cliente, mercadoria AS servico, origem AS ferrovia, SUBSTR(panorama,1,4) ano,
+                  SUM(rec_total) rec
+           FROM vli_pnl WHERE modal='Serviços Acessórios' AND panorama LIKE '%Real%'
+           GROUP BY cliente, mercadoria, origem, SUBSTR(panorama,1,4)""")
+_sa["cliente"] = _sa["cliente"].map(canon)
+_sa = _sa.groupby(["cliente", "servico", "ferrovia", "ano"], as_index=False)["rec"].sum()
+_sa_p = _sa.pivot_table(index=["cliente", "servico", "ferrovia"], columns="ano", values="rec",
+                        aggfunc="sum", fill_value=0).reset_index()
+_sa_p.columns = [str(c) for c in _sa_p.columns]
+for _a in ("2024", "2025"):
+    if _a not in _sa_p.columns:
+        _sa_p[_a] = 0.0
+_sa_p["rec24_mi"] = _sa_p["2024"] / 1e6
+_sa_p["rec25_mi"] = _sa_p["2025"] / 1e6
+_sa_p["var_pct"] = np.where(_sa_p["2024"] > 0, (_sa_p["2025"] / _sa_p["2024"] - 1) * 100, np.nan)
+_sa_p["alvo"] = _sa_p["cliente"].map(is_alvo)
+_mod = q("""SELECT modal, SUM(rec_total) rec FROM vli_pnl WHERE panorama LIKE '2025%Real%' GROUP BY modal""")
+# receita VLI 2025 por cliente canônico e linha — base da lista "clientes sem painel curado"
+_cr = q("""SELECT cliente, modal, SUM(rec_total) tot, SUM(rec_fr) fr, SUM(rec_man) man, SUM(rec_trbd) trbd,
+                  SUM(rec_dp) dp
+           FROM vli_pnl WHERE panorama LIKE '2025%Real%' GROUP BY cliente, modal""")
+_cr["cliente"] = _cr["cliente"].map(canon)
+_crp = _cr.pivot_table(index="cliente", columns="modal", values="tot", aggfunc="sum", fill_value=0)
+_crf = _cr[_cr["modal"] == "Ferrovia"].groupby("cliente")[["fr", "man", "trbd", "dp"]].sum()
+_crp = _crp.join(_crf, how="left").fillna(0)
+_com_painel = {canon(str(c).replace(" (retroativo)", "").strip())
+               for c in q("SELECT DISTINCT cliente FROM projeto_fluxo_tarifas")["cliente"]}
+_cli_rows = []
+for _c, _r in _crp.iterrows():
+    _tot = float(sum(_r.get(m, 0) for m in ("Ferrovia", "Porto", "Rodovia", "Serviços Acessórios")))
+    if _tot <= 0:
+        continue
+    _cli_rows.append({"cliente": _c, "rec_mi": _tot / 1e6, "ferrovia_mi": _r.get("Ferrovia", 0) / 1e6,
+                      "frete_mi": _r["fr"] / 1e6, "manobra_mi": _r["man"] / 1e6, "transbordo_mi": _r["trbd"] / 1e6,
+                      "porto_mi": _r.get("Porto", 0) / 1e6, "serv_acess_mi": _r.get("Serviços Acessórios", 0) / 1e6,
+                      "tem_painel": _c in _com_painel, "alvo": bool(is_alvo(_c))})
+porto_servicos = {
+    "porto": rec(pd.DataFrame(_po_rows).round(2)) if _po_rows else [],
+    "servicos": rec(_sa_p[_sa_p["rec25_mi"] + _sa_p["rec24_mi"] > 0][
+        ["cliente", "servico", "ferrovia", "rec24_mi", "rec25_mi", "var_pct", "alvo"]].round(2)),
+    "receita_modal_2025": {r.modal: round(r.rec / 1e6, 1) for r in _mod.itertuples()},
+    "clientes": rec(pd.DataFrame(_cli_rows).sort_values("rec_mi", ascending=False).round(2)) if _cli_rows else [],
+}
+
+# ---- 4) Rotas inativas e unidade no Painel do Cliente ----
+# rota com volume na base mas NENHUM nos 12 meses da janela (volume_hist) nem no P&L realizado
+# desde jan/2025 é "rota inativa": exibir como ativa (com ganho/ano) era a inconsistência.
+# Mesma janela do painel (pcUlt12Sum): 12 meses terminando no último mês com volume da base
+# inteira (volume_hist completado pelo P&L realizado — hoje jul/2026).
+_pnl_ult = {}
+for c, o, d, per in q("""SELECT cliente, origem, destino, MAX(ano*12+mes) per FROM vli_pnl
+                         WHERE modal='Ferrovia' AND vol_tu>0 AND (panorama LIKE '%Real%'
+                               OR (panorama LIKE '2026%' AND mes<=7))
+                         GROUP BY cliente, origem, destino""").itertuples(index=False):
+    k = (canon(c), o, d)
+    _pnl_ult[k] = max(_pnl_ult.get(k, 0), int(per))
+_ancora_global = max([_permax] + list(_pnl_ult.values()))
+_TAG_RE = _re.compile(r"\((?:ITEM\s+)?\d{3,6}\)", _re.I)
+if "projetos_clientes" in dir():
+    for _f in projetos_clientes.get("fluxos", []):
+        _nome = _TAG_RE.sub(" ", str(_f.get("fluxo") or "")).split()
+        _f["rota_ult"] = None
+        _f["rota_inativa"] = False
+        if len(_nome) >= 3:
+            _cli = canon(str(_f.get("cliente") or "").replace(" (retroativo)", "").strip())
+            _k = (_cli, _nome[-2], _nome[-1])
+            _u = _ultimamap.get(_k)
+            _per = max(_u[0] * 12 + _u[1] if _u else 0, _pnl_ult.get(_k, 0))
+            if _per:
+                _a, _m = (_per - 1) // 12, (_per - 1) % 12 + 1
+                _f["rota_ult"] = f"{_a}-{_m:02d}"
+                _f["rota_inativa"] = _per <= _ancora_global - 12
+        if not _f.get("unidade"):
+            _f["unidade"] = "R$/t"
+
 # ================= BASE POTENCIAIS VLI — visão consolidada por cliente (1ª aba do painel) =================
 data = {
   "meta": {"gerado_em": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
            "aviso":"CONFIDENCIAL — inclui P&L VLI e dados pessoais de CRM. Uso interno.",
            "todos_clientes": todos_clientes, "alvos_default": alvos_default,
-           "raw_counts": raw_counts},
+           "raw_counts": raw_counts, "data_base": DATA_BASE, "reajustes_resumo": REAJ_RESUMO},
   "kpis": kpis,
   "horizontes": horizontes,
   "portfolio": portfolio,
@@ -1747,6 +1982,7 @@ data = {
   "rota_ferrovia": rota_ferrovia,
   "ipoa_ferrovia": ipoa_ferrovia,
   "premissas_manobra_graos": premissas_manobra_graos,
+  "porto_servicos": porto_servicos,
 }
 
 # sem mascara de codinome — nome real da concessionária (VLI) exibido diretamente

@@ -71,10 +71,31 @@ def main():
         por_item.setdefault(item, []).append(row)
 
     # vigência com data de CADASTRO mais recente por item (a situação atual)
+    # Pente-fino lote 3 (nov/2026): o cadastro mais recente nem sempre é o preço vigente. Item
+    # 19402 (OLEO DIESEL PPN→QPM, 1.236 km) tinha como último cadastro um preço de UM MÊS
+    # (01/04–30/04/2026, frete R$ 6,33/t) já vencido, enquanto o contrato de 01/03/2026 a
+    # 31/12/2027 (frete R$ 95,63/t) continuava valendo. Regra: entre as linhas ainda válidas na
+    # data mais recente observada do item, descarta preço de curta duração (<= 45 dias) quando
+    # existe contrato longo válido; sem nenhuma válida, cai no cadastro mais recente (antes).
+    def _dt(s):
+        k = _brdate_key(s)
+        return k if k and k[0] > 1900 else None
+
+    def _dias(a, b):
+        import datetime as _d
+        return (_d.date(*a) - _d.date(*b)).days
+
     atuais = []
     for item, rows in por_item.items():
         rows_sorted = sorted(rows, key=lambda r: _brdate_key(r[5]), reverse=True)
-        atuais.append(rows_sorted[0])
+        ref = max((_dt(r[6]) for r in rows if _dt(r[6])), default=None)
+        longos = [r for r in rows
+                  if ref and _dt(r[6]) and _dt(r[7]) and _dt(r[7]) >= ref
+                  and _dias(_dt(r[7]), _dt(r[6])) > 45]
+        if longos:
+            atuais.append(sorted(longos, key=lambda r: (_dt(r[6]), _brdate_key(r[5])), reverse=True)[0])
+        else:
+            atuais.append(rows_sorted[0])
 
     # 27/jul/2026: usuário definiu regra explícita — "gerdau e ipiranga considerar 1 rota
     # apenas se volume for igual e a diferença de tarifa seja menor que 5%, usar a maior

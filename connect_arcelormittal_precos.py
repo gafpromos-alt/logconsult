@@ -89,8 +89,12 @@ def main():
         if atual is None or vi > atual[5]:
             por_fluxo[fluxo] = row
 
-    # limpa só PJA da ARCELORMITTAL (estava zerada; idempotente)
-    cur.execute("DELETE FROM projeto_acessorias_abertas WHERE cliente=?", (CLIENTE,))
+    # limpa a PJA SÓ dos fluxos que este conector escreve (pente-fino lote 4, nov/2026: antes
+    # apagava a ARCELORMITTAL inteira, levando junto a abertura que o portfólio genérico
+    # gravou para rotas que o F-LINK não cobre)
+    for fluxo in por_fluxo:
+        cur.execute("DELETE FROM projeto_acessorias_abertas WHERE cliente=? AND fluxo=?",
+                    (CLIENTE, fluxo))
 
     n_update = n_insert = npja = 0
     for fluxo, row in por_fluxo.items():
@@ -120,9 +124,10 @@ def main():
                  round(ipoa, 4), None, None, vf, FONTE_PJF, cobertura))
             n_insert += 1
 
-    # PJA: para TODOS os itens minerados (nao so o "vencedor" do fluxo),
-    # assim nenhuma abertura de manobra se perde na colisao de fluxo
-    for row in atuais:
+    # PJA: SÓ o item vencedor de cada fluxo (pente-fino lote 3, nov/2026). Antes gravava a
+    # abertura de TODOS os itens da rota no mesmo fluxo — FIO MAQUINA VJM→VTU (itens 7894 e
+    # 40462, o 2º substituído em fev/2026) somava manobra 48,34 contra acessória de 23,94.
+    for row in por_fluxo.values():
         it, contrato, o, d, prod, vi, vf, tr, tarifa, frete, mo, md, transb = row
         fluxo = f"{prod} {o} {d}"
         fonte_item = f"{FONTE_PJA} (item {it})"

@@ -318,6 +318,8 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
       <button data-tab="novonegocio">Novo Negócio · Manobras</button>
       <button data-tab="acessorias">Acessórias e Teto</button>
       <button data-tab="comparativo">Comparativo de Tarifas</button>
+      <button data-tab="reajustes">Reajustes e Vencimentos</button>
+      <button data-tab="portoservicos">Porto e Serviços Acessórios</button>
       <button data-tab="regulatorio">Regulatório</button>
       <div class="navgroup">Mercado &amp; Operação</div>
       <button data-tab="mercado">Mercado</button>
@@ -326,6 +328,7 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
       <button data-tab="premissa">Premissa de Planejamento</button>
       <div class="navgroup">CRM &amp; Gestão</div>
       <button data-tab="contratos">Contratos</button>
+      <button data-tab="captura">Pendências de Captura</button>
       <button data-tab="contatos">Contatos</button>
       <button data-tab="alvos" style="opacity:.7">⚙ Clientes-alvo LogConsult</button>
       <button data-tab="margem" style="opacity:.7">Sinal VLI <span style="font-size:10px">(insumo)</span></button>
@@ -432,6 +435,7 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
           <select id="pcCliPriorSel" class="mono" style="margin-right:14px"></select>
           <span class="pc-lbl">Cliente (todos da base)</span>
           <select id="pcCliTodosSel" class="mono"></select>
+          <span class="muted" style="font-size:11px;margin-left:8px" title="Pente-fino nov/2026: a marca ○ antes aparecia em todo cliente fora dos 18 priorizados — inclusive nos 5 de açúcar, que têm painel curado.">○ = sem tratamento curado (painel montado só com dados brutos da base)</span>
         </div>
         <div class="pc-row pc-row--tabs" style="justify-content:space-between">
           <span class="seg">
@@ -463,6 +467,15 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
         <span class="muted" id="alvCount"></span>
       </div>
       <div class="tbl-wrap" style="max-height:600px"><div id="alvList"></div></div>
+    </div>
+    <div class="panel">
+      <h2>Backup das suas classificações</h2>
+      <div class="desc">Clientes-alvo, simulações por fluxo, volumes digitados, probabilidade, complexidade, taxa de êxito e flegs ficam só neste navegador (chaves <code>lc_*</code>). Limpar o cache ou trocar de computador apaga tudo. Exporte um arquivo e importe em outra máquina ou depois de reinstalar.</div>
+      <div class="controls">
+        <span class="chip" id="lcExport">⬇ Exportar classificações (.json)</span>
+        <label class="chip" style="cursor:pointer">⬆ Importar arquivo<input type="file" id="lcImport" accept="application/json,.json" style="display:none"></label>
+        <span class="muted" id="lcBackupInfo"></span>
+      </div>
     </div>
   </section>
 
@@ -1258,6 +1271,83 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
   </section>
 
   <!-- ============ CONTRATOS ============ -->
+  <!-- ============ REAJUSTES E VENCIMENTOS (pente-fino nov/2026) ============ -->
+  <section id="reajustes">
+    <div class="kpis" id="rjKpis" style="margin-bottom:12px"></div>
+    <div class="panel">
+      <h2>Rastreador de reajustes — preço contratual vigência a vigência</h2>
+      <div class="desc">Cada linha é um <b>item ferroviário</b> filmado no F-LINK. Variações da 1ª para a última vigência válida (série de pelo menos 1 ano). <b>Reclassificação</b> = frete e manobra andaram mais de 30 pontos percentuais em sentidos diferentes com a tarifa total variando menos de 15%: o cliente paga quase o mesmo, mas a divisão entre parcela regulada (frete) e acessória mudou. Isso move o ganho medido só sobre a acessória sem o cliente pagar um centavo a mais.</div>
+      <div class="controls">
+        <input type="search" id="rjSearch" placeholder="Buscar cliente / produto / estação…" style="min-width:240px">
+        <span class="chip" data-rjf="recl">Só reclassificação frete↔manobra</span>
+        <span class="chip" data-rjf="acima">Só tarifa total acima do TR ANTT</span>
+        <span class="chip" data-rjf="serie">Só com série ≥ 1 ano</span>
+        <span class="muted" id="rjCount"></span>
+      </div>
+      <div class="tbl-wrap freeze-cli" style="max-height:620px"><table id="tReaj"></table></div>
+      <div class="note fine" style="margin-top:8px">Fonte: tabelas <code>*_precos_contratuais</code> (vídeos F-LINK transcritos). Linhas marcadas <b>conferir</b> (frete menor que a manobra e abaixo de 30% da tarifa — padrão de coluna trocada na transcrição) ficam fora das variações e das medianas. TR ANTT = valor de referência do teto informado na própria tela F-LINK.</div>
+    </div>
+    <div class="panel">
+      <h2>Calendário de vencimentos × ganho — quem abordar primeiro</h2>
+      <div class="desc">Fluxos do Painel do Cliente com data final de vigência, cruzados com o ganho de acessórias calculado pela <b>mesma função</b> do card do cliente (últimos 12 meses). Prioridade <b>A</b> = vencido ou vence em até 6 meses, com ganho; <b>B</b> = vence em até 12 meses, com ganho; <b>C</b> = ganho com vencimento mais distante. Contrato vencido precisa de preço novo antes de o número sair daqui.</div>
+      <div class="controls">
+        <span class="seg"><span class="chip on" data-vcf="todos">Todos</span><span class="chip" data-vcf="vencido">Vencidos</span><span class="chip" data-vcf="12m">Vencem em 12 meses</span><span class="chip" data-vcf="semdata">Sem data final</span></span>
+        <input type="search" id="vcSearch" placeholder="Buscar cliente…">
+        <span class="muted" id="vcCount"></span>
+      </div>
+      <div class="tbl-wrap freeze-cli" style="max-height:620px"><table id="tVenc"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ PORTO E SERVIÇOS ACESSÓRIOS (pente-fino nov/2026) ============ -->
+  <section id="portoservicos">
+    <div class="kpis" id="psKpis" style="margin-bottom:12px"></div>
+    <div class="panel">
+      <h2>Porto — R$/t de cada cliente contra os pares no mesmo porto e produto</h2>
+      <div class="desc">P&amp;L VLI 2025 Real, modal Porto, agregado por UF portuária × produto. <b>Menor par</b> e <b>mediana</b> são calculados <b>sem o próprio cliente</b> (mesma regra das acessórias). <b>Em jogo</b> = (R$/t − menor par) × volume — teto superior, porque o escopo do serviço portuário pode diferir entre clientes (armazenagem, prazo, berço); serve para escolher onde abrir o contrato, não como número de proposta.</div>
+      <div class="controls">
+        <input type="search" id="psSearch" placeholder="Buscar cliente / produto / UF…" style="min-width:220px">
+        <span class="chip" data-psf="pares">Só com 2+ pares</span>
+        <span class="muted" id="psCount"></span>
+      </div>
+      <div class="tbl-wrap freeze-cli" style="max-height:560px"><table id="tPorto"></table></div>
+    </div>
+    <div class="panel">
+      <h2>Serviços Acessórios por cliente — estadia de vagões, infraestrutura portuária, armazenagem</h2>
+      <div class="desc">Receita VLI 2024 e 2025 Real por serviço e ferrovia. <b>Estadia de vagões</b> depende de quem causou a espera — é a cobrança mais contestável da lista e hoje não aparece em nenhuma outra tela.</div>
+      <div class="controls">
+        <input type="search" id="saSearch" placeholder="Buscar cliente / serviço…" style="min-width:220px">
+        <select id="saServ" class="mono"></select>
+        <span class="muted" id="saCount"></span>
+      </div>
+      <div class="tbl-wrap freeze-cli" style="max-height:560px"><table id="tServAc"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ PENDÊNCIAS DE CAPTURA (pente-fino nov/2026) ============ -->
+  <section id="captura">
+    <div class="kpis" id="filKpis" style="margin-bottom:12px"></div>
+    <div class="panel">
+      <h2>Fila de filmagem — fluxos sem abertura de manobra, por dinheiro em jogo</h2>
+      <div class="desc">Fluxos do Painel do Cliente que têm acessória mas nenhum item aberto (manobra origem/destino, DP…). Sem abertura, o simulador não consegue comparar com os pares. <b>Em jogo</b> = acessória × volume dos últimos 12 meses — é o tamanho do que está parado, não o ganho. Fluxos de contêiner (R$/contêiner) e rotas inativas vão para o fim.</div>
+      <div class="controls">
+        <input type="search" id="capSearch" placeholder="Buscar cliente / rota…" style="min-width:220px">
+        <span class="chip on" data-capf="ativos">Só com tráfego</span>
+        <span class="muted" id="capCount"></span>
+      </div>
+      <div class="tbl-wrap freeze-cli" style="max-height:560px"><table id="tFilaCap"></table></div>
+    </div>
+    <div class="panel">
+      <h2>Clientes sem painel curado — onde está a outra metade da receita</h2>
+      <div class="desc">Receita VLI 2025 Real por cliente (P&amp;L), marcando quem já tem Painel do Cliente curado. Os maiores sem painel já têm dado bruto carregado (teto, serviços, volume) — a curadoria genérica roda sem filmar nada; a abertura por item vem depois, por vídeo.</div>
+      <div class="controls">
+        <span class="chip on" data-cpf="sem">Só sem painel</span>
+        <span class="muted" id="cpCount"></span>
+      </div>
+      <div class="tbl-wrap freeze-cli" style="max-height:560px"><table id="tSemPainel"></table></div>
+    </div>
+  </section>
+
   <section id="contratos">
     <div class="panel">
       <h2>Contratos — janela de renegociação</h2>
@@ -1392,7 +1482,11 @@ function makeTable(elId, rows, cols, opts={}){
   const el=document.getElementById(elId);
   let sort=opts.sort||{k:cols[0].k,dir:1};
   function render(data){
-    const head='<thead><tr>'+cols.map(c=>`<th data-k="${c.k}" class="${c.num?'num':''}"${c.title?` title="${c.title}"`:''}>${c.h}</th>`).join('')+'</tr></thead>';
+    // seta de ordenação desenhada AQUI (pente-fino lote 5, nov/2026): antes era inserida no <th>
+    // clicado DEPOIS do render(), mas o render() já tinha trocado o <thead> inteiro — a seta ia
+    // para um elemento desanexado e nunca aparecia em nenhuma das 44 tabelas.
+    const arr=c=>c.k===sort.k?` <span class="arr">${sort.dir<0?'▼':'▲'}</span>`:'';
+    const head='<thead><tr>'+cols.map(c=>`<th data-k="${c.k}" class="${c.num?'num':''}"${c.title?` title="${c.title}"`:''}>${c.h}${arr(c)}</th>`).join('')+'</tr></thead>';
     const sorted=[...data].sort((a,b)=>{let x=a[sort.k],y=b[sort.k];
       if(typeof x==='string'){x=(x||'').toLowerCase();y=(y||'').toLowerCase();}else{x=x??-1e15;y=y??-1e15;}
       return (x<y?-1:x>y?1:0)*sort.dir;});
@@ -1404,8 +1498,6 @@ function makeTable(elId, rows, cols, opts={}){
     el.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
       const key=th.dataset.k; sort.dir=(sort.k===key)?-sort.dir:(cols.find(c=>c.k===key).num?-1:1); sort.k=key;
       render(el._data);
-      el.querySelectorAll('th .arr').forEach(a=>a.remove());
-      th.insertAdjacentHTML('beforeend',` <span class="arr">${sort.dir<0?'▼':'▲'}</span>`);
     });
   }
   el._data=rows; el._render=d=>{el._data=d;render(d);};
@@ -1468,7 +1560,10 @@ function stackedBars(elId, rows, opts={}){
     const cx=(i+0.5)*(W/rows.length);
     let y0=pT+plotH;
     r.segs.forEach(seg=>{
-      if(!seg.v) return;
+      // parcela negativa (ex.: "Outros" = demurrage − quebra < 0 em 2 rotas do Custo Logístico)
+      // não é empilhável: o SVG recusava altura negativa e logava erro no console. Fica no
+      // tooltip e no total; a barra mostra só as parcelas positivas (pente-fino nov/2026).
+      if(!(seg.v>0)) return;
       const h=(seg.v/maxV)*plotH;
       s+=`<rect x="${cx-bw/2}" y="${y0-h}" width="${bw}" height="${h}" fill="${seg.c}" rx="2"></rect>`;
       y0-=h;
@@ -2167,6 +2262,9 @@ if(D.comparativo && D.comparativo.tarifas){
   // 3) fallback pro default de sempre (volume_ano_ktu, senão 0) só quando não há dado real
   // de volume pra essa rota×produto.
   function fluxoVolKtGanho(f){
+    // R$/contêiner (ARCELORMITTAL "CNTR CHEIO 20 P") não multiplica por tonelada — nem com
+    // volume digitado (pente-fino lote 3, nov/2026). Ganho 0 honesto até haver peso médio.
+    if(f&&f.unidade==='R$/contêiner') return 0;
     const s=st(canonPC(f&&f.cliente)), k=fkey(f);
     if(s.teto[k]&&s.teto[k].volKt!=null) return s.teto[k].volKt;
     return volDefaultKtGanho(f);
@@ -2180,8 +2278,23 @@ if(D.comparativo && D.comparativo.tarifas){
   // canonPC(f.cliente): o cliente da PRÓPRIA LINHA canonicalizado (a base tem
   // "SELECTA (retroativo)" como valor de cliente) — nunca o pcCli global (ver volDefaultKt).
   function volDefaultKtGanho(f){
+    if(f&&f.unidade==='R$/contêiner') return 0;
     const real=volRealUlt12KtDoFluxo(f, canonPC(f&&f.cliente));
-    return real!=null?real:volDefaultKt(f);
+    if(real!=null) return real;
+    // rota sem tráfego há mais de 12 meses (nem volume_hist nem P&L realizado — flag do build):
+    // o `volume_ano_ktu` estático da planilha não é volume de "ganho/ano" (pente-fino lote 3,
+    // nov/2026: 52 rotas mortas apareciam com ganho anual como se rodassem).
+    if(f&&f.rota_inativa) return 0;
+    return volDefaultKt(f);
+  }
+  // selo de situação da rota, reaproveitado nas tabelas do Painel do Cliente
+  function seloRota(f){
+    if(!f) return '';
+    let h='';
+    if(f.rota_inativa) h+=` <span class="pill" style="background:var(--surface-2);color:var(--mut)" title="Sem volume nos últimos 12 meses (volume_hist) nem no P&L realizado desde jan/2025. Ganho/ano = 0 até voltar a rodar ou você digitar um volume.">rota inativa${f.rota_ult?' desde '+f.rota_ult.split('-').reverse().join('/'):''}</span>`;
+    if(f.unidade==='R$/contêiner') h+=` <span class="pill" style="background:var(--amber-bg);color:var(--amber)" title="Preço em R$ por contêiner, não por tonelada. Fica fora do ganho até haver peso médio do contêiner.">R$/contêiner</span>`;
+    if(f.vigencia && f.vigencia < new Date().toISOString().slice(0,10)) h+=` <span class="pill" style="background:var(--danger-bg);color:var(--danger)" title="Data final de vigência já passou — o preço na tela pode não ser mais o praticado.">vencido ${f.vigencia.split('-').reverse().join('/')}</span>`;
+    return h;
   }
   // volume ano (kt) REAL TOTAL de uma estação, como origem OU destino, somando TODOS OS
   // CLIENTES (não só o cliente aberto no Painel) — pedido do usuário (22/jul/2026): "para
@@ -2269,12 +2382,8 @@ if(D.comparativo && D.comparativo.tarifas){
     return null;
   }
 
-  // rota principal do cliente (estações de origem/destino da manobra): teto.fluxos primeiro,
-  // senão comparativo — usada pras referências por estação e pro histórico do fluxo
-  function rotaDo(c){
-    const tt=ttDo(c)[0]; if(tt) return {origem:tt.origem, destino:tt.destino, produto:tt.produto};
-    const ct=ctDo(c)[0]; return ct?{origem:ct.origem, destino:ct.destino, produto:ct.produto}:null;
-  }
+  // (rotaDo removida no pente-fino lote 5, nov/2026: não tinha mais chamador — emprestava a 1ª
+  // rota do cliente para qualquer fluxo, a origem do bug do "volume emprestado")
   const AH=(D.acess_hub||{}); const CE=AH.comp_estacoes||[], SIMH=AH.sim||[];
   const AM=((D.acess_mercado||{}).tabela)||[];
   const HIST=(PJ.historico)||[];
@@ -2360,6 +2469,22 @@ if(D.comparativo && D.comparativo.tarifas){
   }
   const HISTM=(PJ.historico_mensal)||[];   // MESN (nomes de mês) é declarado na seção iso, mesmo escopo
   const REAJ=(PJ.reajustes)||[];   // preços contratuais F-LINK por fluxo × vigência (reajuste a reajuste)
+  // vigências F-LINK de UM fluxo do Painel: mesmo cliente, mesma origem/destino e mesmo produto
+  // (nome normalizado, prefixo só se único — mesma regra do volume). Se o nome do fluxo traz
+  // "(ITEM n)", fica só aquele item. Antes casava pelo texto exato do nome e só existia GERDAU
+  // (pente-fino nov/2026: agora 19 clientes / 2.379 vigências).
+  function reajDoFluxo(f){
+    const fr=fluxoRota(f); if(!fr||!fr.origem) return [];
+    const cli=canonPC(f.cliente), item=(String(f.fluxo).match(/\(ITEM\s+(\d+)\)/i)||[])[1];
+    const norm=p=>String(p||'').replace(/\(ITEM\s+\S+?\)/gi,'').trim().toUpperCase().split(/\s+/).filter(t=>!['DE','DO','DA'].includes(t)).join(' ');
+    const alvo=norm(fr.produto);
+    const daRota=REAJ.filter(r=>r.cliente===cli&&r.origem===fr.origem&&r.destino===fr.destino);
+    let m=daRota.filter(r=>norm(r.produto)===alvo);
+    if(!m.length){ const c=[...new Set(daRota.map(r=>norm(r.produto)))].filter(n=>n.startsWith(alvo)||alvo.startsWith(n));
+      if(c.length===1) m=daRota.filter(r=>norm(r.produto)===c[0]); }
+    if(item) m=m.filter(r=>String(r.item_ferroviario)===item);
+    return m.sort((a,b)=>String(b.vigencia_inicial).localeCompare(String(a.vigencia_inicial)));
+  }
   const TETO_REG=(PJ.teto_reg)||{};   // segmentação multi-ferrovia por cliente (hoje só LD Celulose)
   const TPARAMS=(PJ.tetos_params)||{};   // parâmetros ANTT: ferrovia→produto→{fixo,bands:[[ate_km,rate]]}
   // teto ANTT (R$/t) por ferrovia×produto — delega a conta em tetoANTTmarginal (implementação
@@ -2723,7 +2848,7 @@ if(D.comparativo && D.comparativo.tarifas){
     }
     if(selTodos){
       selTodos.innerHTML=pcClientesTodos.map(c=>
-        `<option value="${escAttr(c)}"${c===pcCli?' selected':''}>${c}${PC_CLIENTES_PRIORIZADOS.has(c)?'':' ○'}</option>`).join('');
+        `<option value="${escAttr(c)}"${c===pcCli?' selected':''}>${c}${pcClientes.includes(c)?'':' ○'}</option>`).join('');
       selTodos.onchange=function(){ if(this.value) pickCli(this.value); };
     }
     document.querySelectorAll('[data-pctab]').forEach(t=>{
@@ -2975,12 +3100,25 @@ if(D.comparativo && D.comparativo.tarifas){
   // últimos 12 meses o volume tá baixo"). Compartilhado por `volPeriodoKt` (filtro "Últimos 12
   // meses" explícito) e `volDefaultKt` (default sem filtro nenhum — mesmo achado, "volumes
   // repetidos" pra fluxos sem volume_ano_ktu próprio). Retorna null se o índice não tiver nada.
+  // Âncora GLOBAL da base (último mês com volume em qualquer série — hoje jul/2026, com o P&L
+  // realizado completando o volume_hist). Pente-fino nov/2026: a âncora era só a da PRÓPRIA
+  // série, então uma rota que parou em 2015 (GERDAU VOB→VGV) ou em mai/2024 (APERAM ECE→VMR)
+  // somava os seus últimos 12 meses de atividade como se fossem "os últimos 12 meses" — rota
+  // morta aparecia com volume e ganho/ano. Agora a série continua ancorada no próprio último mês
+  // (preserva a cobertura de quem só tem volume_hist até set/2025), mas se esse mês caiu fora
+  // da janela global de 12 meses o volume é ZERO (a série existe, só não rodou no período).
+  let _pcAncoraGlobal=null;
+  const pcAncoraGlobal=()=>{ if(_pcAncoraGlobal!=null) return _pcAncoraGlobal;
+    let mx=-1; PCVM.forEach(r=>{ const i=Number(r[4])*12+Number(r[5]); if(i>mx) mx=i; });
+    return (_pcAncoraGlobal=mx); };
   function pcUlt12Sum(anosMap){
     if(!anosMap) return null;
     let ancoraIdx=-1;
     Object.keys(anosMap).forEach(a=>Object.keys(anosMap[a]).forEach(m=>{
       const idx=Number(a)*12+Number(m); if(idx>ancoraIdx) ancoraIdx=idx; }));
     if(ancoraIdx<0) return null;
+    const glob=pcAncoraGlobal();
+    if(glob>0 && ancoraIdx<=glob-12) return 0;
     let t=0, achou=false;
     for(let i=0;i<12;i++){ const idx=ancoraIdx-i; const a=Math.floor((idx-1)/12), m=idx-a*12;
       const v=(anosMap[a]||{})[m]; if(v!=null){t+=v;achou=true;} }
@@ -3014,9 +3152,10 @@ if(D.comparativo && D.comparativo.tarifas){
     // situação tarifária + IPOA de todos os fluxos numa tabela, com a manobra marcada como pendente
     // (os deltas simuláveis entram quando a abertura de manobra for fornecida, como na Selecta).
     if(atuais.every(f=>itensDe(f).length===0)){
-      const parseFlux=fl=>{ const p=String(fl).split(' '); const d=p.pop(), o=p.pop(); return {origem:o, destino:d, produto:p.join(' ')}; };
+      // (pente-fino lote 5, nov/2026: removida a cópia local `parseFlux`, que não tratava
+      // "(ITEM n)" nem nome sem rota — usa o parser único fluxoRota)
       const linhas=atuais.map(f=>{
-        const r=parseFlux(f.fluxo);
+        const r=fluxoRota(f);
         const pctTeto=f.teto>0?f.frete/f.teto:null;              // teto regula só o frete
         const ipoaAlvo=ipoaAlvoRota(r.origem,r.destino);          // média REAL da ferrovia do fluxo, não 24,8% fixo
         const acimaIpoa=f.frete>0&&(f.acessorias/f.frete)>ipoaAlvo*1.2;
@@ -3168,7 +3307,7 @@ if(D.comparativo && D.comparativo.tarifas){
           <div class="kpis" id="pcTetoRes_${fi}"></div>
         </div>
 
-        <div class="sec-h">Situação tarifária do fluxo <span class="h-hint">${escAttr(fr.label)} · vol. ${Math.round(volKt)} kt/ano</span></div>
+        <div class="sec-h">Situação tarifária do fluxo <span class="h-hint">${escAttr(fr.label)} · vol. ${Math.round(volKt)} kt/ano</span>${seloRota(f)}</div>
         <div class="tbl-wrap"><table>
           <thead><tr><th>Indicador</th><th class="num">R$/t</th><th>Contexto</th></tr></thead>
           <tbody>
@@ -3339,8 +3478,7 @@ if(D.comparativo && D.comparativo.tarifas){
         })()}
 
         ${(()=>{ // ---- histórico de reajustes (preços contratuais F-LINK, por vigência) ----
-          const reaj=REAJ.filter(r=>r.cliente===pcCli&&r.fluxo===canonPC(f.fluxo))
-            .sort((a,b)=>String(b.vigencia_inicial).localeCompare(String(a.vigencia_inicial)));
+          const reaj=reajDoFluxo(f);
           if(!reaj.length) return '';
           const tr=reaj.map((r,i)=>{
             const prev=reaj[i+1];   // período anterior (lista desc)
@@ -3353,16 +3491,18 @@ if(D.comparativo && D.comparativo.tarifas){
               <td class="num">${dFrete!=null?`<b style="color:${dFrete>0?'var(--bad)':dFrete<0?'var(--good)':'var(--mut2)'}">${dFrete>0?'+':''}${N1(dFrete)}</b>`:'—'}</td>
               <td class="num mono">${r.manobra_origem_rs_t!=null?'R$ '+N1(r.manobra_origem_rs_t):'—'}</td>
               <td class="num mono">${r.manobra_destino_rs_t!=null?'R$ '+N1(r.manobra_destino_rs_t):'—'}</td>
-              <td class="num mono"><b>R$ ${N1(r.tarifa_contrato)}</b></td></tr>`;
+              <td class="num mono">${r.outros_rs_t?'R$ '+N1(r.outros_rs_t):'—'}</td>
+              <td class="num mono"><b>R$ ${N1(r.tarifa_contrato)}</b>${r.suspeita?' <span class="pill" style="background:var(--amber-bg);color:var(--amber)" title="Frete menor que a manobra e < 30% da tarifa — provável coluna trocada na transcrição do vídeo">conferir</span>':(r.soma_ok===false?' <span class="muted" title="frete + componentes não fecha com a tarifa (±R$0,05)">≠</span>':'')}</td></tr>`;
           }).join('');
-          const r0=reaj[0], meta=`item ${r0.item_ferroviario} · ${r0.contrato}`;
+          const _its=[...new Set(reaj.map(r=>r.item_ferroviario))];
+          const r0=reaj[0], meta=_its.length>1?`itens ${_its.join(', ')}`:`item ${r0.item_ferroviario} · ${r0.contrato}`;
           return `<div class="subcard">
             <div class="sec-h" style="border-top:0;padding-top:0">Histórico de reajustes <span class="h-hint">${reaj.length} vigências · ${escAttr(meta)} · fonte F-LINK (preços contratuais)</span></div>
             <div class="note fine" style="margin-bottom:8px">Tarifa contratual reajuste a reajuste desde 2023, aberta em <b>frete + manobra origem + manobra destino</b> (a soma = tarifa contrato). <b>Valor TR (ANTT)</b> é o teto regulatório do frete. A manobra é o que alimenta os deltas simuláveis acima.</div>
             <details class="tec"${reaj.length<=8?' open':''}>
               <summary>${reaj.length} vigências (mais recente → 2023)</summary>
               <div class="tbl-wrap" style="max-height:360px"><table>
-                <thead><tr><th>Vigência</th><th class="num">Teto ANTT R$/t</th><th class="num">Frete R$/t</th><th class="num">Δ frete</th><th class="num">Man. origem</th><th class="num">Man. destino</th><th class="num">Tarifa R$/t</th></tr></thead>
+                <thead><tr><th>Vigência</th><th class="num">Teto ANTT R$/t</th><th class="num">Frete R$/t</th><th class="num">Δ frete</th><th class="num">Man. origem</th><th class="num">Man. destino</th><th class="num" title="DP, transbordo, descarga, conexão, limpeza…">Outros</th><th class="num">Tarifa R$/t</th></tr></thead>
                 <tbody>${tr}</tbody></table></div>
             </details>
           </div>`;
@@ -3533,7 +3673,7 @@ if(D.comparativo && D.comparativo.tarifas){
       const celS=(v,base)=>v>0.005||base>0.005?`<span${Math.abs(v-base)>0.005?' style="color:var(--green-text);font-weight:600"':''}>R$ ${N1(v)}</span>`:'—';
       const trs=linhas.map(({f,r,manOri,manDes,manOut,dp0,tb0,simOri,simDes,simOut,pctTeto,ipoaHi,hp,freteExib,acessExib,tarifaExib,escala})=>`<tr data-pcgorota="${escAttr(fkey(f))}" style="cursor:pointer${ipoaHi?';background:var(--amber-bg)':''}">
         <td class="mono">${escAttr(r.origem&&r.destino?r.origem+'→'+r.destino:canonPC(f.fluxo))}</td>
-        <td><span class="muted">${escAttr(r.produto)}</span></td>
+        <td><span class="muted">${escAttr(r.produto)}</span>${seloRota(f)}</td>
         <td class="num mono">${hp?`<span style="color:var(--green-text)" title="realizado no período (${hp.nMeses} ${hp.nMeses===1?'mês':'meses'}) — fora do período: R$ ${N1(f.tarifa_total)}">R$ ${N1(tarifaExib)}</span>`:`R$ ${N1(tarifaExib)}`}</td>
         <td class="num mono">R$ ${N1(f.teto)}</td>
         <td class="num">${pctTeto!=null?`<b style="color:${pctTeto>=0.98?'var(--bad)':pctTeto>=0.85?'var(--warn)':'inherit'}">${Math.round(pctTeto*100)}%</b>`:'—'}</td>
@@ -4357,7 +4497,10 @@ if(D.comparativo && D.comparativo.tarifas){
   // anterior colocou a exposição num ponto que ACHEI que estava dentro do bloco léxico e
   // não estava — dava ReferenceError silencioso, sem log, abortando o script inteiro).
   function _pcExposeAPI(){
-    window.PC_API = {PJF, pjDo, canonPC, fkey, isRetro, fluxoVolKt, itensDe, fluxoRota};
+    window.PC_API = {PJF, pjDo, canonPC, fkey, isRetro, fluxoVolKt, itensDe, fluxoRota,
+      // pente-fino nov/2026: abas Reajustes/Vencimentos e Pendências de captura usam as MESMAS
+      // funções de ganho e volume do card do cliente (um número, uma função)
+      ganhoAcessCliente, fluxoVolKtGanho, seloRota, reajDoFluxo};
   }
   _pcExposeAPI();
 
@@ -5007,8 +5150,14 @@ hbars('panoramas', D.margem.panoramas.map(p=>({label:p.panorama.split(' - ')[0],
   txt:PCT(p.margem_pct)+' · R$'+N1(p.rec_bi)+'bi'+(p.tarifa_media?' · R$'+N1(p.tarifa_media)+'/t':''),c:mcol(p.margem_pct)})));
 hbars('margCorredor', D.margem.por_corredor.map(c=>({label:c.corredor_vli,v:c.margem_pct,
   txt:PCT(c.margem_pct)+' · R$'+Math.round(c.rec_mi)+'mi',c:mcol(c.margem_pct)})));
-document.getElementById('margMini').innerHTML='<div class="hbars">'+D.margem.por_cliente.filter(c=>c.alvo).slice(0,10)
-  .map(c=>`<div class="hbar-row"><span>${c.cliente} ${alvoPill(true)}</span>
+// Pente-fino lote 5 (nov/2026): a caixa filtrava só clientes-alvo e, como alvo vem SÓ da seleção
+// manual do usuário (nunca pré-populado), abria vazia sem explicação. Sem alvo marcado, mostra os
+// 10 maiores por receita e diz isso.
+const _margAlvos=D.margem.por_cliente.filter(c=>c.alvo);
+const _margLista=(_margAlvos.length?_margAlvos:[...D.margem.por_cliente].sort((a,b)=>(b.rec_mi||0)-(a.rec_mi||0))).slice(0,10);
+document.getElementById('margMini').innerHTML=(_margAlvos.length?'':'<div class="note fine" style="margin-bottom:8px">Nenhum cliente-alvo marcado — mostrando os 10 maiores por receita. Marque alvos em ⚙ Clientes-alvo LogConsult.</div>')
+  +'<div class="hbars">'+_margLista
+  .map(c=>`<div class="hbar-row"><span>${c.cliente} ${alvoPill(c.alvo)}</span>
    <div class="bar" style="height:11px"><span style="width:${c.margem_pct}%;background:${mcol(c.margem_pct)}"></span></div>
    <span class="num">${PCT(c.margem_pct)}</span></div>`).join('')+'</div>';
 const tMarg=makeTable('tMargem', D.margem.por_cliente,[
@@ -5269,7 +5418,11 @@ if(HUB && HUB.sim && HUB.sim.length){
   // canonPC/fkey/isRetro/fluxoVolKt vivem num escopo de bloco que fecha antes daqui, então
   // não dá pra referenciar direto (ReferenceError silencioso) — só ganhoAcessCliente/
   // ganhoFluxo escapam sozinhas (são `function`, hoisted).
-  const {PJF, pjDo, canonPC, fkey, isRetro, fluxoVolKt} = window.PC_API;
+  // Leitura protegida (pente-fino lote 5, nov/2026): se o Painel do Cliente não montar (ex.:
+  // elemento-gatilho renomeado), window.PC_API fica undefined e o destructuring abortava o
+  // script inteiro em silêncio — ~45% do painel sumia. Agora só esta tabela fica de fora.
+  if(!window.PC_API){ console.warn('PC_API ausente — ranking de captura não montado'); }
+  const {PJF, pjDo, canonPC, fkey, isRetro, fluxoVolKt} = window.PC_API||{PJF:[], pjDo:()=>[], canonPC:s=>s, fkey:()=>'', isRetro:()=>false, fluxoVolKt:()=>0};
   const alvoMapRank={}; HUB.sim.forEach(r=>{ if(alvoMapRank[r.cliente]==null) alvoMapRank[r.cliente]=!!r.alvo; });
   rankRows=[...new Set(PJF.map(f=>canonPC(f.cliente)))].map(c=>{
     const g=ganhoAcessCliente(c), atuais=pjDo(c).filter(f=>!isRetro(f.fluxo));
@@ -7277,8 +7430,8 @@ document.getElementById('contrHoje').textContent='Contrato que vence é contrato
 const contrCols=[
   {k:'cliente',h:'Cliente',f:(v,r)=>v+' '+alvoPill(r.alvo)},
   {k:'vigencia',h:'Vence em',f:v=>`<span class="mono">${v}</span>`},
-  {k:'produto',h:'Produto',f:v=>`<span class="muted">${v}</span>`},
-  {k:'origem',h:'Rota',f:(v,r)=>`<span class="muted mono">${v}→${r.destino}</span>`},
+  {k:'produto',h:'Produto',f:v=>v?`<span class="muted">${v}</span>`:'—'},
+  {k:'origem',h:'Rota',f:(v,r)=>v?`<span class="muted mono">${v}→${r.destino||'?'}</span>`:`<span class="muted" title="A base de tarifas não traz a rota deste item">item ${r.item??'—'} · rota não informada</span>`},
   {k:'tarifa_total',h:'Tarifa R$/t',num:1,f:v=>N1(v)},
   {k:'pct_teto',h:'%Teto',num:1,f:v=>v==null?'—':`<span style="color:${v*100>=98?'var(--bad)':v*100>=80?'var(--warn)':'var(--good)'}">${(v*100).toFixed(1)}%</span>`},
 ];
@@ -7317,6 +7470,287 @@ if(D.regulatorio){
 }
 
 /* ---- BARRA LATERAL DE INSIGHTS (uma leitura por página) ---- */
+/* ================= PENTE-FINO nov/2026 — abas novas =================
+   Reajustes e Vencimentos · Porto e Serviços Acessórios · Pendências de Captura · backup do
+   estado do usuário · frescor dos dados. Cada bloco em try/catch próprio: erro numa aba nova
+   nunca derruba o resto do painel. Ganho e volume vêm de window.PC_API (as MESMAS funções do
+   card do Painel do Cliente) — nenhum número é recalculado aqui por outra conta. */
+const NOVAS={};   // resumos reaproveitados pela trilha de insights (RAIL)
+(function(){
+  const API=window.PC_API||null;
+  const PJx=D.projetos_clientes||{};
+  const hojeISO=new Date().toISOString().slice(0,10);
+  const pctf=(v,d=1)=>v==null||!isFinite(v)?'—':(v>0?'+':'')+v.toFixed(d).replace('.',',')+'%';
+  const ppf=v=>v==null||!isFinite(v)?'—':(v>0?'+':'')+Math.round(v)+' pp';
+  const med=xs=>{const a=xs.filter(x=>x!=null&&isFinite(x)).sort((x,y)=>x-y); if(!a.length) return null; const i=a.length>>1; return a.length%2?a[i]:(a[i-1]+a[i])/2;};
+  const fmtD=d=>d?String(d).slice(0,10).split('-').reverse().join('/'):'—';
+  const corVar=v=>v==null?'':v>0.05?'color:var(--bad)':v<-0.05?'color:var(--good)':'';
+  const kpi=(lbl,val,sub,estilo)=>`<div class="kpi"${estilo?` style="${estilo}"`:''}><div class="lbl">${lbl}</div><div class="val">${val}${sub?` <small>${sub}</small>`:''}</div></div>`;
+  const chipsToggle=(sel,set,onChange)=>document.querySelectorAll(sel).forEach(c=>c.onclick=function(){
+    const k=Object.values(this.dataset)[0]; set.has(k)?set.delete(k):set.add(k); this.classList.toggle('on',set.has(k)); onChange(); });
+  const ehRetro=f=>/\(retroativo\)/i.test(String(f.cliente||''))||/\(retroativo\)/i.test(String(f.fluxo||''));
+
+  /* ---------- 1) Rastreador de reajustes ---------- */
+  try{
+    const REJ=PJx.reajustes||[];
+    const porItem=new Map();
+    REJ.forEach(r=>{ if(!r.vigencia_inicial||r.vigencia_inicial>hojeISO) return;
+      const k=r.cliente+'|'+r.item_ferroviario; if(!porItem.has(k)) porItem.set(k,[]); porItem.get(k).push(r); });
+    const man=r=>(r.manobra_origem_rs_t||0)+(r.manobra_destino_rs_t||0);
+    const dp=(x,y)=>x>0&&y!=null?(y/x-1)*100:null;
+    const rows=[];
+    porItem.forEach(rs=>{
+      const ord=[...rs].sort((a,b)=>a.vigencia_inicial.localeCompare(b.vigencia_inicial));
+      const bons=ord.filter(r=>!r.suspeita&&r.tarifa_contrato>0);
+      const ult=ord[ord.length-1], a=bons[0], b=bons[bons.length-1];
+      const dias=a&&b?(new Date(b.vigencia_inicial)-new Date(a.vigencia_inicial))/864e5:0;
+      const serie=bons.length>=2&&dias>=330;
+      const dT=serie?dp(a.tarifa_contrato,b.tarifa_contrato):null, dTR=serie?dp(a.valor_tr_antt,b.valor_tr_antt):null;
+      const dF=serie?dp(a.frete_rs_t,b.frete_rs_t):null, dM=serie&&man(a)>0?dp(man(a),man(b)):null;
+      const gap=dF!=null&&dM!=null?dF-dM:null;
+      rows.push({cliente:ult.cliente, item:ult.item_ferroviario, rota:ult.origem+'→'+ult.destino, produto:ult.produto,
+        n:rs.length, de:a?a.vigencia_inicial:ord[0].vigencia_inicial, ate:ult.vigencia_inicial,
+        tarifa:ult.tarifa_contrato, tr:ult.valor_tr_antt, frete:ult.frete_rs_t, man:man(ult), outros:ult.outros_rs_t||0,
+        pctTR:ult.valor_tr_antt>0?ult.tarifa_contrato/ult.valor_tr_antt:null,
+        dT, dTR, dF, dM, gap, serie, recl:gap!=null&&Math.abs(gap)>30&&Math.abs(dT)<15,
+        acima:ult.valor_tr_antt>0&&ult.tarifa_contrato>ult.valor_tr_antt,
+        freteAcima:ult.valor_tr_antt>0&&ult.frete_rs_t>ult.valor_tr_antt,
+        nSusp:rs.filter(r=>r.suspeita).length, alvo:alvoSet.has(ult.cliente)});
+    });
+    const ser=rows.filter(r=>r.serie);
+    NOVAS.reaj={n:rows.length, nSerie:ser.length, medT:med(ser.map(r=>r.dT)), medTR:med(ser.map(r=>r.dTR)),
+      medF:med(ser.map(r=>r.dF)), medM:med(ser.map(r=>r.dM)), nRecl:rows.filter(r=>r.recl).length,
+      nAcima:rows.filter(r=>r.acima).length, nFreteAcima:rows.filter(r=>r.freteAcima).length,
+      exRecl:[...rows].filter(r=>r.recl).sort((x,y)=>Math.abs(y.gap)-Math.abs(x.gap))[0]||null};
+    const N=NOVAS.reaj, base=D.meta.reajustes_resumo||{};
+    document.getElementById('rjKpis').innerHTML=
+      kpi('Itens com série ≥ 1 ano', N.nSerie, `de ${N.n} itens · ${base.vigencias||'—'} vigências · ${base.clientes||'—'} clientes`)+
+      kpi('Tarifa total (mediana)', pctf(N.medT), 'da 1ª à última vigência')+
+      kpi('TR ANTT (mediana)', pctf(N.medTR), 'teto de referência')+
+      kpi('Frete × Manobra (medianas)', `${pctf(N.medF)} · ${pctf(N.medM)}`, 'frete · manobra')+
+      kpi('Reclassificação frete↔manobra', N.nRecl, 'itens com divisão > 30 pp e total < 15%','border-color:color-mix(in oklab,var(--amber) 40%,transparent);background:var(--amber-bg)')+
+      kpi('Tarifa total acima do TR', `${N.nAcima} de ${N.n}`, `frete sozinho acima: ${N.nFreteAcima}`);
+    const cols=[
+      {k:'cliente',h:'Cliente',f:(v,r)=>v+' '+alvoPill(r.alvo)},
+      {k:'produto',h:'Produto',f:v=>`<span class="muted">${escAttr(v)}</span>`},
+      {k:'rota',h:'Rota',f:v=>`<span class="mono">${v}</span>`},
+      {k:'item',h:'Item',f:v=>`<span class="mono muted">${v}</span>`},
+      {k:'n',h:'Vig.',num:1,title:'nº de vigências filmadas'},
+      {k:'ate',h:'Última',f:(v,r)=>`<span class="mono">${fmtD(v)}</span><br><span class="muted" style="font-size:10px">desde ${fmtD(r.de)}</span>`},
+      {k:'tarifa',h:'Tarifa R$/t',num:1,f:v=>`<b>${N1(v)}</b>`},
+      {k:'tr',h:'TR ANTT',num:1,f:v=>N1(v)},
+      {k:'pctTR',h:'Tarifa/TR',num:1,f:v=>v==null?'—':`<b style="${v>1?'color:var(--bad)':''}">${Math.round(v*100)}%</b>`},
+      {k:'dT',h:'Δ tarifa',num:1,f:v=>`<span style="${corVar(v)}">${pctf(v)}</span>`},
+      {k:'dTR',h:'Δ TR',num:1,f:v=>pctf(v)},
+      {k:'dF',h:'Δ frete',num:1,f:v=>`<span style="${corVar(v)}">${pctf(v)}</span>`},
+      {k:'dM',h:'Δ manobra',num:1,f:v=>`<span style="${corVar(v)}">${pctf(v)}</span>`},
+      {k:'gap',h:'Frete − manobra',num:1,title:'Δ frete − Δ manobra, em pontos percentuais',
+        f:(v,r)=>v==null?'—':`<b style="${r.recl?'color:var(--amber)':''}">${ppf(v)}</b>${r.recl?' <span class="pill" style="background:var(--amber-bg);color:var(--amber)">reclassif.</span>':''}`},
+      {k:'nSusp',h:'Conferir',num:1,title:'vigências com provável coluna trocada na transcrição',f:v=>v?`<span style="color:var(--amber)">${v}</span>`:'—'},
+    ];
+    const t=makeTable('tReaj', rows, cols, {sort:{k:'gap',dir:-1}, emptyMsg:'Nenhum item neste filtro.'});
+    const fl=new Set();
+    const apply=()=>{ const qq=(document.getElementById('rjSearch').value||'').toLowerCase();
+      const r=rows.filter(x=>(!fl.has('recl')||x.recl)&&(!fl.has('acima')||x.acima)&&(!fl.has('serie')||x.serie)
+        &&(!qq||(x.cliente+' '+x.produto+' '+x.rota+' '+x.item).toLowerCase().includes(qq)));
+      t._render(r); document.getElementById('rjCount').textContent=r.length+' itens'; };
+    document.getElementById('rjSearch').oninput=apply;
+    chipsToggle('[data-rjf]', fl, apply); apply();
+  }catch(e){ console.error('Rastreador de reajustes:', e); }
+
+  /* ---------- 2) Calendário de vencimentos × ganho ---------- */
+  try{
+    const F=(PJx.fluxos||[]).filter(f=>!ehRetro(f));
+    const gCache={};
+    const gDe=c=>{ if(!(c in gCache)){ try{ gCache[c]=API&&typeof API.ganhoAcessCliente==='function'?API.ganhoAcessCliente(c):null; }catch(e){ gCache[c]=null; } } return gCache[c]; };
+    const rows=F.map(f=>{
+      const cli=API?API.canonPC(f.cliente):f.cliente;
+      const g=gDe(cli), pf=g&&API?g.porFluxo[API.fkey(f)]:null;
+      const meses=f.vigencia?(new Date(f.vigencia)-new Date(hojeISO))/(864e5*30.44):null;
+      const fr=API?API.fluxoRota(f):{origem:null,produto:f.fluxo};
+      const mod=pf?pf.mod:0, otm=pf?pf.otm:0;
+      const prio=mod<=0?'—':(meses!=null&&meses<=6)?'A':(meses!=null&&meses<=12)?'B':'C';
+      return {cliente:cli, fluxo:f.fluxo, rota:fr.origem?fr.origem+'→'+fr.destino:'—', produto:fr.produto,
+        vigencia:f.vigencia||null, meses, prio, mod, otm, f,
+        sit:meses==null?'sem data':meses<0?'vencido':meses<=12?'até 12 meses':'depois',
+        alvo:alvoSet.has(cli)};
+    });
+    const ordPrio={A:0,B:1,C:2,'—':3};
+    rows.forEach(r=>r.score=ordPrio[r.prio]*1e12-(r.mod||0));
+    NOVAS.venc={n:rows.length, vencidos:rows.filter(r=>r.sit==='vencido').length,
+      ate12:rows.filter(r=>r.sit==='até 12 meses').length, semData:rows.filter(r=>r.sit==='sem data').length,
+      ganhoA:rows.filter(r=>r.prio==='A').reduce((s,r)=>s+r.mod,0), nA:rows.filter(r=>r.prio==='A').length,
+      topA:rows.filter(r=>r.prio==='A').sort((a,b)=>b.mod-a.mod)[0]||null};
+    const cols=[
+      {k:'score',h:'Prior.',num:1,title:'A: vencido ou ≤ 6 meses com ganho · B: ≤ 12 meses · C: mais distante',
+        f:(v,r)=>`<b style="${r.prio==='A'?'color:var(--bad)':r.prio==='B'?'color:var(--warn)':''}">${r.prio}</b>`},
+      {k:'cliente',h:'Cliente',f:(v,r)=>v+' '+alvoPill(r.alvo)},
+      {k:'rota',h:'Rota',f:(v,r)=>`<span class="mono">${v}</span>`},
+      {k:'produto',h:'Produto',f:(v,r)=>`<span class="muted">${escAttr(v||'')}</span>${API&&API.seloRota?API.seloRota(r.f):''}`},
+      {k:'vigencia',h:'Vence em',f:(v,r)=>v?`<span class="mono" style="${r.sit==='vencido'?'color:var(--bad)':''}">${fmtD(v)}</span>`:'<span class="muted">sem data final</span>'},
+      {k:'meses',h:'Meses',num:1,f:v=>v==null?'—':`<span style="${v<0?'color:var(--bad)':''}">${Math.round(v)}</span>`},
+      {k:'mod',h:'Ganho moderado/ano',num:1,f:v=>v>0?BRLmi(v):'—'},
+      {k:'otm',h:'Ganho otimista/ano',num:1,f:v=>v>0?`<span class="muted">${BRLmi(v)}</span>`:'—'},
+    ];
+    const t=makeTable('tVenc', rows, cols, {sort:{k:'score',dir:1}});
+    let fsel='todos';
+    const apply=()=>{ const qq=(document.getElementById('vcSearch').value||'').toLowerCase();
+      const r=rows.filter(x=>(fsel==='todos'||(fsel==='vencido'&&x.sit==='vencido')||(fsel==='12m'&&x.sit==='até 12 meses')||(fsel==='semdata'&&x.sit==='sem data'))
+        &&(!qq||(x.cliente+' '+x.produto+' '+x.rota).toLowerCase().includes(qq)));
+      t._render(r); document.getElementById('vcCount').textContent=r.length+' fluxos';
+    };
+    document.querySelectorAll('[data-vcf]').forEach(c=>c.onclick=function(){
+      document.querySelectorAll('[data-vcf]').forEach(x=>x.classList.remove('on')); this.classList.add('on'); fsel=this.dataset.vcf; apply(); });
+    document.getElementById('vcSearch').oninput=apply; apply();
+    if(!API) document.getElementById('vcCount').textContent='ganho indisponível (Painel do Cliente não montou)';
+  }catch(e){ console.error('Calendário de vencimentos:', e); }
+
+  /* ---------- 3) Porto e Serviços Acessórios ---------- */
+  try{
+    const PS=D.porto_servicos||{porto:[],servicos:[],receita_modal_2025:{},clientes:[]};
+    const RM=PS.receita_modal_2025||{}, tot=Object.values(RM).reduce((s,v)=>s+(v||0),0);
+    const portoRows=(PS.porto||[]).map(r=>({...r, alvo:alvoSet.has(r.cliente)}));
+    const comPar=portoRows.filter(r=>r.n_pares>=2);
+    const estadia=(PS.servicos||[]).filter(r=>/estadia/i.test(r.servico));
+    NOVAS.porto={rec:RM['Porto']||0, sa:RM['Serviços Acessórios']||0, tot,
+      emJogo:comPar.reduce((s,r)=>s+(r.oport_mi||0),0), top:[...comPar].sort((a,b)=>b.oport_mi-a.oport_mi)[0]||null,
+      estadia25:estadia.reduce((s,r)=>s+(r.rec25_mi||0),0), nEstadia:new Set(estadia.filter(r=>r.rec25_mi>0).map(r=>r.cliente)).size};
+    const P=NOVAS.porto;
+    document.getElementById('psKpis').innerHTML=
+      kpi('Porto — receita VLI 2025', 'R$ '+N1(P.rec)+' mi', tot?Math.round(P.rec/tot*100)+'% da receita':'')+
+      kpi('Serviços Acessórios 2025', 'R$ '+N1(P.sa)+' mi', tot?(P.sa/tot*100).toFixed(1).replace('.',',')+'% da receita':'')+
+      kpi('Estadia de vagões 2025', 'R$ '+N1(P.estadia25)+' mi', P.nEstadia+' clientes')+
+      kpi('Porto: acima do menor par', 'R$ '+N1(P.emJogo)+' mi/ano', 'teto superior · só porto/produto com 2+ pares','border-color:color-mix(in oklab,var(--amber) 40%,transparent);background:var(--amber-bg)');
+    const tP=makeTable('tPorto', portoRows, [
+      {k:'cliente',h:'Cliente',f:(v,r)=>v+' '+alvoPill(r.alvo)},
+      {k:'uf',h:'Porto (UF)',f:v=>`<span class="mono">${v}</span>`},
+      {k:'produto',h:'Produto',f:v=>`<span class="muted">${escAttr(v)}</span>`},
+      {k:'vol_kt',h:'Volume kt',num:1,f:v=>Math.round(v).toLocaleString('pt-BR')},
+      {k:'rs_t',h:'R$/t',num:1,f:v=>`<b>${N1(v)}</b>`},
+      {k:'min_pares',h:'Menor par',num:1,f:(v,r)=>v==null?'—':`${N1(v)}<br><span class="muted" style="font-size:10px">${escAttr(r.min_cliente||'')}</span>`},
+      {k:'med_pares',h:'Mediana pares',num:1,f:v=>N1(v)},
+      {k:'n_pares',h:'Pares',num:1},
+      {k:'gap_min',h:'Δ vs menor',num:1,f:v=>v==null?'—':`<span style="${v>0?'color:var(--bad)':'color:var(--good)'}">${v>0?'+':''}${N1(v)}</span>`},
+      {k:'oport_mi',h:'Em jogo R$ mi/ano',num:1,f:v=>v>0?`<b>${N1(v)}</b>`:'—'},
+    ], {sort:{k:'oport_mi',dir:-1}});
+    const pf=new Set();
+    const applyP=()=>{ const qq=(document.getElementById('psSearch').value||'').toLowerCase();
+      const r=portoRows.filter(x=>(!pf.has('pares')||x.n_pares>=2)&&(!qq||(x.cliente+' '+x.produto+' '+x.uf).toLowerCase().includes(qq)));
+      tP._render(r); document.getElementById('psCount').textContent=r.length+' linhas'; };
+    document.getElementById('psSearch').oninput=applyP; chipsToggle('[data-psf]', pf, applyP); applyP();
+
+    const saRows=(PS.servicos||[]).map(r=>({...r, alvo:alvoSet.has(r.cliente)}));
+    const servs=[...new Set(saRows.map(r=>r.servico))].sort();
+    const selS=document.getElementById('saServ');
+    selS.innerHTML='<option value="">Todos os serviços</option>'+servs.map(x=>`<option>${escAttr(x)}</option>`).join('');
+    const tS=makeTable('tServAc', saRows, [
+      {k:'cliente',h:'Cliente',f:(v,r)=>v+' '+alvoPill(r.alvo)},
+      {k:'servico',h:'Serviço',f:v=>escAttr(v)},
+      {k:'ferrovia',h:'Ferrovia',f:v=>`<span class="mono muted">${escAttr(v||'—')}</span>`},
+      {k:'rec24_mi',h:'2024 R$ mi',num:1,f:v=>v?N1(v):'—'},
+      {k:'rec25_mi',h:'2025 R$ mi',num:1,f:v=>v?`<b>${N1(v)}</b>`:'—'},
+      {k:'var_pct',h:'Var.',num:1,f:v=>v==null?'—':`<span style="${corVar(v)}">${pctf(v,0)}</span>`},
+    ], {sort:{k:'rec25_mi',dir:-1}});
+    const applyS=()=>{ const qq=(document.getElementById('saSearch').value||'').toLowerCase(), sv=selS.value;
+      const r=saRows.filter(x=>(!sv||x.servico===sv)&&(!qq||(x.cliente+' '+x.servico).toLowerCase().includes(qq)));
+      tS._render(r); document.getElementById('saCount').textContent=r.length+' linhas · R$ '+N1(r.reduce((s,x)=>s+(x.rec25_mi||0),0))+' mi em 2025'; };
+    document.getElementById('saSearch').oninput=applyS; selS.onchange=applyS; applyS();
+  }catch(e){ console.error('Porto e Serviços Acessórios:', e); }
+
+  /* ---------- 4) Pendências de captura ---------- */
+  try{
+    const F=(PJx.fluxos||[]).filter(f=>!ehRetro(f));
+    const PJA=PJx.abertura||[];
+    const temAb=new Set(PJA.map(a=>a.cliente+'||'+a.fluxo));
+    const rows=F.filter(f=>!temAb.has(f.cliente+'||'+f.fluxo)&&(f.acessorias||0)>0).map(f=>{
+      const vol=API&&API.fluxoVolKtGanho?API.fluxoVolKtGanho(f):0;
+      const fr=API?API.fluxoRota(f):{origem:null,produto:f.fluxo};
+      const cont=f.unidade==='R$/contêiner';
+      return {cliente:API?API.canonPC(f.cliente):f.cliente, rota:fr.origem?fr.origem+'→'+fr.destino:'—', produto:fr.produto, f,
+        acess:f.acessorias, vol, emJogo:cont?0:(f.acessorias||0)*vol*1000, ativo:vol>0&&!f.rota_inativa&&!cont,
+        alvo:alvoSet.has(API?API.canonPC(f.cliente):f.cliente)};
+    });
+    const ativos=rows.filter(r=>r.ativo);
+    NOVAS.captura={n:rows.length, nAtivos:ativos.length, emJogo:ativos.reduce((s,r)=>s+r.emJogo,0),
+      top:[...ativos].sort((a,b)=>b.emJogo-a.emJogo).slice(0,3)};
+    const cli=(D.porto_servicos||{}).clientes||[];
+    const recTot=cli.reduce((s,c)=>s+(c.rec_mi||0),0), recPainel=cli.filter(c=>c.tem_painel).reduce((s,c)=>s+(c.rec_mi||0),0);
+    const semPainel=cli.filter(c=>!c.tem_painel).sort((a,b)=>b.rec_mi-a.rec_mi);
+    NOVAS.captura.cobertura=recTot?recPainel/recTot:null; NOVAS.captura.topSem=semPainel.slice(0,4);
+    document.getElementById('filKpis').innerHTML=
+      kpi('Fluxos sem abertura', rows.length, `${ativos.length} com tráfego nos últimos 12 meses`)+
+      kpi('Acessória parada sem abertura', BRLmi(NOVAS.captura.emJogo)+'/ano', 'acessória × volume 12m dos fluxos com tráfego')+
+      kpi('Receita VLI coberta por painel', recTot?Math.round(recPainel/recTot*100)+'%':'—', `R$ ${N1(recPainel/1e3)} bi de R$ ${N1(recTot/1e3)} bi (2025)`)+
+      kpi('Maior cliente sem painel', semPainel[0]?semPainel[0].cliente:'—', semPainel[0]?'R$ '+Math.round(semPainel[0].rec_mi).toLocaleString('pt-BR')+' mi em 2025':'');
+    const tC=makeTable('tFilaCap', rows, [
+      {k:'cliente',h:'Cliente',f:(v,r)=>v+' '+alvoPill(r.alvo)},
+      {k:'rota',h:'Rota',f:v=>`<span class="mono">${v}</span>`},
+      {k:'produto',h:'Produto',f:(v,r)=>`<span class="muted">${escAttr(v||'')}</span>${API&&API.seloRota?API.seloRota(r.f):''}`},
+      {k:'acess',h:'Acessória R$/t',num:1,f:v=>N1(v)},
+      {k:'vol',h:'Vol 12m kt',num:1,f:v=>v>0?N1(v):'—'},
+      {k:'emJogo',h:'Em jogo R$/ano',num:1,f:v=>v>0?`<b>${BRLmi(v)}</b>`:'—'},
+    ], {sort:{k:'emJogo',dir:-1}});
+    const cf=new Set(['ativos']);
+    const applyC=()=>{ const qq=(document.getElementById('capSearch').value||'').toLowerCase();
+      const r=rows.filter(x=>(!cf.has('ativos')||x.ativo)&&(!qq||(x.cliente+' '+x.rota+' '+x.produto).toLowerCase().includes(qq)));
+      tC._render(r); document.getElementById('capCount').textContent=r.length+' fluxos'; };
+    document.getElementById('capSearch').oninput=applyC; chipsToggle('[data-capf]', cf, applyC); applyC();
+    const tSP=makeTable('tSemPainel', cli, [
+      {k:'cliente',h:'Cliente',f:(v,r)=>v+' '+alvoPill(r.alvo)+(r.tem_painel?' <span class="pill" style="background:var(--good-bg,var(--surface-2));color:var(--good)">painel</span>':'')},
+      {k:'rec_mi',h:'Receita 2025 R$ mi',num:1,f:v=>`<b>${Math.round(v).toLocaleString('pt-BR')}</b>`},
+      {k:'manobra_mi',h:'Manobra',num:1,f:v=>v?Math.round(v).toLocaleString('pt-BR'):'—'},
+      {k:'transbordo_mi',h:'Transbordo',num:1,f:v=>v?Math.round(v).toLocaleString('pt-BR'):'—'},
+      {k:'porto_mi',h:'Porto',num:1,f:v=>v?Math.round(v).toLocaleString('pt-BR'):'—'},
+      {k:'serv_acess_mi',h:'Serv. acess.',num:1,f:v=>v?N1(v):'—'},
+    ], {sort:{k:'rec_mi',dir:-1}});
+    const sp=new Set(['sem']);
+    const applySP=()=>{ const r=cli.filter(c=>!sp.has('sem')||!c.tem_painel); tSP._render(r);
+      document.getElementById('cpCount').textContent=r.length+' clientes · R$ '+N1(r.reduce((s,c)=>s+c.rec_mi,0)/1e3)+' bi'; };
+    chipsToggle('[data-cpf]', sp, applySP); applySP();
+  }catch(e){ console.error('Pendências de captura:', e); }
+
+  /* ---------- 5) Backup do estado do usuário (localStorage lc_*) ---------- */
+  try{
+    const info=document.getElementById('lcBackupInfo');
+    const chaves=()=>{ const k=[]; for(let i=0;i<localStorage.length;i++){ const n=localStorage.key(i); if(n&&n.startsWith('lc_')) k.push(n); } return k.sort(); };
+    const mostrar=()=>{ try{ info.textContent=chaves().length+' chaves salvas neste navegador'; }catch(e){ info.textContent='armazenamento do navegador indisponível'; } };
+    document.getElementById('lcExport').onclick=()=>{
+      const o={_versao:1, _exportado_em:new Date().toISOString(), dados:{}};
+      chaves().forEach(k=>o.dados[k]=localStorage.getItem(k));
+      const blob=new Blob([JSON.stringify(o,null,1)],{type:'application/json'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+      a.download='logconsult_classificacoes_'+new Date().toISOString().slice(0,10)+'.json';
+      document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500);
+    };
+    document.getElementById('lcImport').onchange=function(){
+      const f=this.files&&this.files[0]; if(!f) return;
+      const rd=new FileReader();
+      rd.onload=()=>{ try{
+        const o=JSON.parse(rd.result); const d=o&&o.dados; if(!d||typeof d!=='object') throw new Error('arquivo sem o campo "dados"');
+        const ks=Object.keys(d).filter(k=>k.startsWith('lc_'));
+        if(!confirm(`Importar ${ks.length} chaves de classificação (exportadas em ${String(o._exportado_em||'?').slice(0,10)})? As atuais com o mesmo nome serão substituídas.`)) return;
+        ks.forEach(k=>localStorage.setItem(k, d[k])); location.reload();
+      }catch(e){ alert('Não consegui importar: '+e.message); } };
+      rd.readAsText(f);
+    };
+    mostrar();
+  }catch(e){ console.error('Backup de classificações:', e); }
+
+  /* ---------- 6) Frescor: data-base de cada fonte ---------- */
+  try{
+    const DB_=D.meta.data_base||{};
+    const ym=v=>v?v.split('-').reverse().join('/'):'—';
+    const txt=`Volume até ${ym(DB_.volume_ate)} · P&L real até ${ym(DB_.pnl_real_ate)} · preços F-LINK até ${fmtD(DB_.precos_contratuais_ate)}`;
+    const g=document.getElementById('gerado');
+    if(g) g.innerHTML='Gerado em '+escAttr(D.meta.gerado_em)+'<br><span title="Data-base de cada fonte do painel. 2026 no P&L = '+escAttr(DB_.pnl_2026||'')+'.">'+escAttr(txt)+'</span>';
+    // aviso de defasagem: volume com mais de 6 meses
+    if(DB_.volume_ate){ const [a,m]=DB_.volume_ate.split('-').map(Number); const hoje=new Date();
+      const meses=(hoje.getFullYear()*12+hoje.getMonth()+1)-(a*12+m);
+      if(meses>6){ const h=document.querySelector('header.head .badge');
+        if(h) h.insertAdjacentHTML('beforebegin',`<span class="badge" style="background:var(--amber-bg);color:var(--amber);margin-right:8px" title="${escAttr(txt)}">Volume real com ${meses} meses de defasagem</span>`); } }
+  }catch(e){ console.error('Frescor:', e); }
+})();
+
 const RAIL_TITLES={
   basepotenciais:'Insights · Potenciais Clientes',
   horizontes:'Insights · Simulador Excel',
@@ -7324,6 +7758,8 @@ const RAIL_TITLES={
   ipoa:'Insights · IPOA', regulatorio:'Normas & referências ANTT', comparativo:'Insights · Comparativo',
   mercado:'Insights · Mercado', custologistico:'Insights · Custo Logístico e Share', volume:'Insights · Volume', premissa:'Insights · Premissa de Planejamento',
   contratos:'Insights · Contratos', contatos:'Insights · Contatos', alvos:'Sobre os Alvos',
+  novonegocio:'Insights · Novo Negócio', reajustes:'Insights · Reajustes e Vencimentos',
+  portoservicos:'Insights · Porto e Serviços', captura:'Insights · Pendências de Captura',
 };
 const RAIL={
   basepotenciais(){
@@ -7485,6 +7921,38 @@ const RAIL={
     if(!D.regulatorio||!D.regulatorio.normas.length) return null;
     return D.regulatorio.normas.map(n=>({hd:n.tema, ref:n.ref, bd:n.titulo, lk:{href:n.url,label:'Abrir na ANTT →'}}));
   },
+  novonegocio(){
+    return [
+      {hd:'O que esta aba mede', ref:'Assumir a manobra do cliente', bd:'Compara o que cada cliente paga hoje à VLI pela manobra com o custo de fornecer o serviço (equipe, equipamento, turnos), estação a estação.'},
+      {hd:'Premissa em aberto', ref:'Custo fixo da manobra', bd:'O modelo hoje rateia o custo pelo volume (≈ R$ 1,31/t em qualquer escala). Sem um custo fixo real não há economia de escala — é uma decisão de premissa pendente.'},
+      {hd:'Como usar', ref:'★ → valuation · ⚙ → simulador', bd:'Marque com ★ os clientes que entram no valuation; "abrir simulador" leva os dados do cliente para a simulação de equipe e equipamentos.'},
+    ];
+  },
+  reajustes(){
+    const R=NOVAS.reaj, V=NOVAS.venc; if(!R&&!V) return null;
+    const it=[];
+    if(R) it.push({hd:'Total parado, divisão mexendo', ref:`Tarifa ${R.medT!=null?(R.medT>0?'+':'')+R.medT.toFixed(1).replace('.',',')+'%':'—'} · TR ${R.medTR!=null?(R.medTR>0?'+':'')+R.medTR.toFixed(1).replace('.',',')+'%':'—'}`,
+      bd:`Medianas da 1ª à última vigência em ${R.nSerie} itens. ${R.nRecl} itens tiveram frete e manobra andando em sentidos opostos com o total quase igual — manobra se comporta como resíduo de negociação de preço total, não como preço de serviço.`});
+    if(R&&R.exRecl) it.push({hd:'Exemplo de reclassificação', ref:R.exRecl.cliente+' · '+R.exRecl.produto+' '+R.exRecl.rota,
+      bd:`Frete ${R.exRecl.dF>0?'+':''}${Math.round(R.exRecl.dF)}%, manobra ${R.exRecl.dM>0?'+':''}${Math.round(R.exRecl.dM)}%, tarifa total ${R.exRecl.dT>0?'+':''}${R.exRecl.dT.toFixed(1).replace('.',',')}%.`});
+    if(V) it.push({hd:'Abordar primeiro', ref:`${V.nA} fluxos prioridade A · ${BRLmi(V.ganhoA)}/ano`, bd:`Vencidos ou vencendo em até 6 meses, com ganho moderado. ${V.vencidos} fluxos já venceram e ${V.semData} não têm data final na base.`+(V.topA?` Maior: ${V.topA.cliente} ${V.topA.produto} ${V.topA.rota}.`:'')});
+    return it;
+  },
+  portoservicos(){
+    const P=NOVAS.porto; if(!P) return null;
+    return [
+      {hd:'Linha sem análise até nov/2026', ref:'R$ '+N1(P.rec+P.sa)+' mi em 2025', bd:'Porto e Serviços Acessórios somam '+(P.tot?Math.round((P.rec+P.sa)/P.tot*100):'—')+'% da receita VLI. Até aqui a ferramenta só olhava frete, manobra, transbordo e DP.'},
+      P.top?{hd:'Maior diferença no porto', ref:P.top.cliente+' · '+P.top.produto+' '+P.top.uf, bd:`R$ ${N1(P.top.rs_t)}/t contra R$ ${N1(P.top.min_pares)}/t do menor par (${escAttr(P.top.min_cliente||'')}) — confira o escopo do serviço antes de usar.`}:null,
+      {hd:'Estadia de vagões', ref:'R$ '+N1(P.estadia25)+' mi · '+P.nEstadia+' clientes', bd:'Cobrança que depende de quem causou a espera. Peça ao cliente o extrato de estadia e os registros de chegada/liberação de vagões.'},
+    ].filter(Boolean);
+  },
+  captura(){
+    const C=NOVAS.captura; if(!C) return null;
+    return [
+      {hd:'Filmar a seguir', ref:C.top.length?C.top.map(r=>r.cliente).join(' · '):'—', bd:C.top.length?C.top.map(r=>`${r.produto} ${r.rota} (${BRLmi(r.emJogo)}/ano)`).join('; ')+'.':'Nenhum fluxo com tráfego sem abertura.'},
+      {hd:'Cobertura da receita VLI', ref:C.cobertura!=null?Math.round(C.cobertura*100)+'% com painel':'—', bd:C.topSem&&C.topSem.length?'Maiores sem painel: '+C.topSem.map(c=>`${c.cliente} (R$ ${Math.round(c.rec_mi).toLocaleString('pt-BR')} mi)`).join(', ')+'.':''},
+    ];
+  },
   alvos(){
     return [
       {hd:'Como funciona', ref:alvoSet.size+' clientes marcados', bd:'A marcação vale para o painel inteiro (pílulas, filtros "Só alvos", insights de IA) e fica salva neste navegador — não altera o banco de dados.'},
@@ -7529,6 +7997,7 @@ window.addEventListener('hashchange',()=>{ const t=decodeURIComponent(location.h
   // canonPC/fkey/isRetro/fluxoVolKt/itensDe/fluxoRota vivem num escopo de bloco que já
   // fechou antes daqui; referenciar direto dava ReferenceError silencioso (só
   // ganhoAcessCliente/ganhoFluxo, sendo `function`, escapam sozinhas por hoisting).
+  if(!window.PC_API){ console.warn('PC_API ausente — planilha de ganho por cliente não montada'); return; }   // ver nota no ranking
   const {PJF, pjDo, canonPC, fkey, isRetro, fluxoVolKt, itensDe, fluxoRota} = window.PC_API;
   const dirOf=s=>{s=String(s||'').toUpperCase(); return s.includes('ORIGEM')?'ao':s.includes('DESTINO')?'ad':'aot';};
   const LSK='lc_gc_potencial_v1';

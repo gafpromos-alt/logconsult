@@ -58,7 +58,9 @@ def main():
            WHERE UPPER(cliente) LIKE '%SELECTA%' AND origem=? AND destino=?
                  AND UPPER(produto) LIKE '%FARELO%' AND realizado_ktu>0
            GROUP BY ano ORDER BY ano DESC LIMIT 1""", (ORIGEM, DESTINO)).fetchone()
-    vol_ano_ktu = round(vol[1], 2) if vol else None
+    # volume_ano_ktu é gravado em TONELADAS em toda a base (apesar do nome); realizado_ktu
+    # vem em kt -> x1000 (pente-fino lote 3, nov/2026: antes gravava 1.000x menor).
+    vol_ano_ktu = round(vol[1] * 1000, 0) if vol else None
 
     # remove qualquer versão anterior deste fluxo (idempotente)
     cur.execute("DELETE FROM projeto_fluxo_tarifas WHERE cliente=? AND fluxo=?", (CLIENTE, FLUXO))

@@ -104,7 +104,10 @@ def main():
         cur.execute("DELETE FROM projeto_fluxo_tarifas WHERE cliente=? AND fluxo=?", (CLIENTE, fluxo))
         cur.execute("DELETE FROM projeto_acessorias_abertas WHERE cliente=? AND fluxo=?", (CLIENTE, fluxo))
 
-        acess = (mo or 0) + (md or 0) + (dp_mrs or 0) + (dp_allmp or 0)
+        # Descarga entra na soma (pente-fino lote 3, nov/2026): tarifa = frete + descarga +
+        # manobras + DP fecha centavo a centavo na vigência vigente; antes a Descarga ia pra
+        # abertura mas ficava fora de `acessorias`, e o IPOA saía pela metade.
+        acess = (descarga or 0) + (mo or 0) + (md or 0) + (dp_mrs or 0) + (dp_allmp or 0)
         ipoa = (acess / frete) if frete else 0.0
         cur.execute(
             """INSERT INTO projeto_fluxo_tarifas
@@ -153,7 +156,10 @@ def main():
         existe = cur.execute(
             "SELECT 1 FROM projeto_fluxo_tarifas WHERE cliente=? AND fluxo=?", (CLIENTE, fluxo)
         ).fetchone()
-        acess = (mo or 0) + (md or 0) + (dp_mrs or 0) + (dp_allmp or 0)
+        # Descarga entra na soma (pente-fino lote 3, nov/2026): tarifa = frete + descarga +
+        # manobras + DP fecha centavo a centavo na vigência vigente; antes a Descarga ia pra
+        # abertura mas ficava fora de `acessorias`, e o IPOA saía pela metade.
+        acess = (descarga or 0) + (mo or 0) + (md or 0) + (dp_mrs or 0) + (dp_allmp or 0)
         ipoa = (acess / frete) if frete else 0.0
         cobertura = f"reajuste a reajuste (item {it}, C_2025_190) — vigência {vi}"
 

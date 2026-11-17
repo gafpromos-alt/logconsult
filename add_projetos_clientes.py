@@ -255,12 +255,19 @@ def main():
 
     # GERDAU: substitui os fluxos curados pelos reais (preços contratuais F-LINK, reajuste a
     # reajuste) e traz a abertura de manobra. Só age se gerdau_precos_contratuais existir.
+    # Tabela-fonte recriada AQUI (pente-fino lote 4, nov/2026): antes o connect rodava contra
+    # uma tabela que só existia por execução manual — se ela sumisse, o connect pulava em
+    # silêncio e a GERDAU voltava aos números velhos da planilha.
+    import add_gerdau_precos_contratuais
+    add_gerdau_precos_contratuais.main()
     import connect_gerdau_precos
     connect_gerdau_precos.main()
 
     # IPIRANGA (cliente novo): cria os fluxos a partir dos preços contratuais F-LINK (reajuste a
     # reajuste) e traz a abertura de manobra/direito de passagem. Só age se
     # ipiranga_precos_contratuais existir.
+    import add_ipiranga_precos_contratuais  # idem (lote 4, nov/2026)
+    add_ipiranga_precos_contratuais.main()
     import connect_ipiranga_precos
     connect_ipiranga_precos.main()
 
@@ -324,6 +331,8 @@ def main():
     # Roda DEPOIS de fix_dp_acessoria_curados (senão aquele script recalcularia acessórias
     # a partir dos itens antigos da planilha antes deste substituí-los pelos reais). Só age
     # se cmoc_precos_contratuais existir.
+    import add_cmoc_precos_contratuais  # idem (lote 4, nov/2026)
+    add_cmoc_precos_contratuais.main()
     import connect_cmoc_precos
     connect_cmoc_precos.main()
 
@@ -343,6 +352,8 @@ def main():
     # real (preços contratuais F-LINK, reajuste a reajuste) — pedido do usuário,
     # 22/jul/2026. Roda por último, mesma posição do CMOC/MOSAIC. Só age se
     # alz_precos_contratuais existir.
+    import add_alz_precos_contratuais  # idem (lote 4, nov/2026)
+    add_alz_precos_contratuais.main()
     import connect_alz_precos
     connect_alz_precos.main()
 
@@ -350,6 +361,8 @@ def main():
     # real (preços contratuais F-LINK, reajuste a reajuste) — pedido do usuário,
     # 22/jul/2026. Roda por último, mesma posição do CMOC/MOSAIC. Só age se
     # agrex_precos_contratuais existir.
+    import add_agrex_precos_contratuais  # idem (lote 4, nov/2026)
+    add_agrex_precos_contratuais.main()
     import connect_agrex_precos
     connect_agrex_precos.main()
 
@@ -357,6 +370,8 @@ def main():
     # tarifaria real (precos contratuais F-LINK, reajuste a reajuste) — pedido do usuario,
     # 22/jul/2026. Roda por ultimo, mesma posicao do CMOC/MOSAIC/ALZ/AGREX. So age se
     # novaagri_precos_contratuais existir.
+    import add_novaagri_precos_contratuais  # idem (lote 4, nov/2026)
+    add_novaagri_precos_contratuais.main()
     import connect_novaagri_precos
     connect_novaagri_precos.main()
 
@@ -398,6 +413,38 @@ def main():
     import connect_aperam_precos
     connect_aperam_precos.main()
 
+    # MATERIAL JÁ MINERADO QUE NÃO CHEGAVA AO PAINEL (pente-fino lote 4, nov/2026): 8 clientes
+    # com vídeos F-LINK transcritos (VIBRA 20 itens/210 vigências, RAIZEN, ALE, CENIBRA,
+    # SUZANO, PETROBAHIA, PETRONAC, SABBA) cujos add_/connect_ nunca foram ligados aqui. Os
+    # connect_<cliente>_precos.py antigos NÃO são usados (apagavam o cliente inteiro antes de
+    # reinserir); o conector único faz UPDATE/INSERT por fluxo. Ver docstring dele.
+    import add_vibra_precos_contratuais
+    add_vibra_precos_contratuais.main()
+    import add_raizen_precos_contratuais
+    add_raizen_precos_contratuais.main()
+    import add_alesat_precos_contratuais
+    add_alesat_precos_contratuais.main()
+    import add_cenibra_precos_contratuais
+    add_cenibra_precos_contratuais.main()
+    import add_suzano_precos_contratuais
+    add_suzano_precos_contratuais.main()
+    import add_petrobahia_precos_contratuais
+    add_petrobahia_precos_contratuais.main()
+    import add_petronac_precos_contratuais
+    add_petronac_precos_contratuais.main()
+    import add_sabba_precos_contratuais
+    add_sabba_precos_contratuais.main()
+    import add_ldcelulose_precos_contratuais  # só a tabela-fonte (histórico p/ rastreador)
+    add_ldcelulose_precos_contratuais.main()
+    import connect_precos_minerados
+    connect_precos_minerados.main()
+
+    # CONSISTÊNCIA FINAL (pente-fino lote 3, nov/2026) — sempre o ÚLTIMO passo que escreve em
+    # projeto_fluxo_tarifas/projeto_acessorias_abertas: IPOA = acessórias ÷ frete, vigência
+    # em formato único, duplicatas de rota, rotas sem tráfego. Ver docstring.
+    import fix_consistencia_final
+    fix_consistencia_final.main()
+
     # Salvaguarda permanente (24/jul/2026, pedido do usuario apos 7 rounds da MESMA classe
     # de bug — "volume ultimos 12 meses" borrowed/fabricado por cliente-a-cliente reportado
     # manualmente): roda audit_volumes.py como resumo NAO-BLOQUEANTE ao fim do pipeline, so
@@ -411,7 +458,6 @@ def main():
         audit_volumes.audit()
     except Exception as e:
         print(f"[aviso] audit_volumes.py nao pode rodar ({e}) — build principal nao foi afetado.")
-
 
 if __name__ == "__main__":
     main()

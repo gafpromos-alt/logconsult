@@ -7,10 +7,12 @@ Ingere as bases (VLI interna + tarifas + IPOA + CRM) em um banco SQLite único e
 consultável — o "banco de dados" da Fase 1. Migra para PostgreSQL na Fase 2 sem
 retrabalho (mesmos nomes de tabela/coluna em snake_case).
 
-Uso:  python3 build_db.py
+Uso:  python3 build_db.py                    (atualiza só as 9 tabelas-base dentro do banco existente)
+      python3 build_db.py --substituir-banco  (recria o arquivo do zero — depois rode atualizar_tudo.py)
 Saída: logconsult.db  (na mesma pasta)
+Normalmente não se roda direto: use `python3 atualizar_tudo.py`.
 """
-import sqlite3, unicodedata, re, pathlib, warnings, tempfile, shutil, os
+import sqlite3, unicodedata, re, pathlib, warnings, tempfile, shutil, os, sys
 import pandas as pd
 warnings.simplefilter("ignore")
 
@@ -165,11 +167,49 @@ def main():
     con.commit()
     con.close()
 
-    # copia o arquivo pronto (fechado) para a pasta do projeto no OneDrive
-    if DB.exists():
-        DB.unlink()
-    shutil.copy2(DB_TMP, DB)
+    # Pente-fino lote 4 (nov/2026): este script só sabe criar 9 das 53 tabelas do banco. Antes
+    # ele APAGAVA o logconsult.db e copiava o novo por cima — rodar para atualizar o extrato da
+    # VLI destruía a ferramenta inteira (tetos, preços contratuais, market share, custo
+    # logístico, projetos por cliente...). Agora, se o banco já existe, só as tabelas e views
+    # que ESTE script cria são substituídas; o resto fica intacto. Recriar do zero só com
+    # `--substituir-banco` (e aí rode atualizar_tudo.py para refazer o resto).
+    if DB.exists() and "--substituir-banco" not in sys.argv:
+        _substituir_so_base(DB_TMP, DB)
+    else:
+        if DB.exists():
+            DB.unlink()
+        shutil.copy2(DB_TMP, DB)
     print(f"\nOK -> {DB}  ({os.path.getsize(DB)/1e6:.1f} MB)")
+
+
+def _substituir_so_base(novo, destino):
+    """Troca, dentro de `destino`, só as tabelas/views/índices que existem em `novo`.
+    Trabalha numa cópia em disco local (SQLite x OneDrive) e devolve o arquivo pronto."""
+    tmp = pathlib.Path(tempfile.gettempdir()) / "logconsult_merge.db"
+    shutil.copy2(destino, tmp)
+    con = sqlite3.connect(tmp)
+    con.execute("ATTACH DATABASE ? AS novo", (str(novo),))
+    objs = con.execute("""SELECT type, name, sql FROM novo.sqlite_master
+                          WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'""").fetchall()
+    for tipo, nome, _ in objs:
+        if tipo == "view":
+            con.execute(f'DROP VIEW IF EXISTS main."{nome}"')
+    for tipo, nome, ddl in objs:
+        if tipo == "table":
+            con.execute(f'DROP TABLE IF EXISTS main."{nome}"')
+            con.execute(ddl)
+            con.execute(f'INSERT INTO main."{nome}" SELECT * FROM novo."{nome}"')
+            print(f"  substituída: {nome}")
+    for tipo, nome, ddl in objs:
+        if tipo in ("index", "view"):
+            con.execute(ddl.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
+                        if tipo == "index" else ddl)
+    con.commit()
+    con.execute("DETACH DATABASE novo")
+    con.close()
+    shutil.copy2(tmp, destino)
+    tmp.unlink()
+    print("  (demais tabelas do banco preservadas — rode atualizar_tudo.py para reprocessar)")
 
 
 if __name__ == "__main__":

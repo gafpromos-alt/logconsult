@@ -73,7 +73,14 @@ def main():
         # o cliente no dropdown "todos os clientes" a cada rerun.
         cliente = canon(cliente_raw)
         rota_dup = contagem[(cliente_raw, origem, destino)] > 1
-        fluxo = f"ACUCAR {origem} {destino}" + (f" ({item})" if rota_dup else "")
+        # Rótulo de rota (pente-fino lote 3, nov/2026): o painel lê a rota dos 2 ÚLTIMOS tokens
+        # do nome do fluxo. "ACUCAR ZZB RJF-TUF (41802)" virava origem "RJF-TUF", destino
+        # "(41802)" — sem par de estação e sem volume. Agora: destino no código curto da base
+        # (mesmo _DESTINO_ALIAS do portfólio) e a tag do item no MEIO, no formato "(ITEM N)"
+        # que o painel já remove ao normalizar produto (mesmo padrão da SELECTA ETB→VTU).
+        destino_rot = _DESTINO_ALIAS.get(destino, destino.split("-")[0])
+        fluxo = (f"ACUCAR (ITEM {item}) {origem} {destino_rot}" if rota_dup
+                 else f"ACUCAR {origem} {destino_rot}")
 
         cur.execute("DELETE FROM projeto_fluxo_tarifas WHERE cliente=? AND fluxo=?",
                     (cliente, fluxo))
