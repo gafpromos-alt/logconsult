@@ -90,6 +90,15 @@ def main():
                            f"{datetime.datetime.now():%Y%m%d_%H%M%S}")
         shutil.copy2(DB, bak)
         print(f"Backup: {bak.name}")
+        # rotação: ficam os 3 backups mais novos desta rotina na pasta; os mais velhos vão para
+        # ~/LogConsult_arquivo/backups_db (fora do OneDrive — 50 MB cada, não precisam sincronizar)
+        arq = pathlib.Path.home() / "LogConsult_arquivo" / "backups_db"
+        velhos = sorted(BASE.glob("logconsult.db.bak_pre_atualizar_tudo_*"))[:-3]
+        if velhos:
+            arq.mkdir(parents=True, exist_ok=True)
+            for v in velhos:
+                shutil.move(str(v), str(arq / v.name))
+            print(f"  {len(velhos)} backup(s) antigo(s) movido(s) para {arq}")
     for nome, scripts in etapas:
         print(f"\n▸ {nome}")
         for s in scripts:
