@@ -33,6 +33,13 @@ Disciplina de mineracao:
 
 NAO EXECUTAR sem revisao. A conversa principal revisa, aplica e conecta ao Painel do
 Cliente via connect_mosaic_precos.py.
+
+ATUALIZACAO 30/07/2026: video IMG_0584.MOV (+ re-gravacao IMG_0584 "b") traz o item
+41109, IUF-TUF -> ZVF-VALEFERTIL, FERTILIZANTES, contrato C_2025_190 - RESOLVE o
+fluxo ate entao "pendente" (sem abertura de manobra) FERTILIZANTES IUF ZVF ja
+curado em projeto_fluxo_tarifas. Frame limpo, soma validada. Ver
+connect_mosaic_precos.py para a logica de UPDATE (preserva teto/km/volume
+ja curados, so atualiza tarifa/acessorias/vigencia/cobertura).
 """
 
 import os
@@ -51,6 +58,9 @@ FLUXOS = {
     39889: dict(contrato="C_010_2020.1", origem="ELC", origem_nome="CATALAO",
                 destino="ZVF", destino_nome="VALEFERTIL",
                 produto="ROCHA FOS UMIDA", video="IMG_0533.MOV"),
+    41109: dict(contrato="C_2025_190", origem="IUF", origem_nome="TUF",
+                destino="ZVF", destino_nome="VALEFERTIL",
+                produto="FERTILIZANTES", video="IMG_0584.MOV"),
 }
 
 # ---------------------------------------------------------------------------
@@ -99,6 +109,15 @@ DADOS[39889] = [
     ("01/06/2025", 73.89, 68.41, 81.41, 13.00, 60.11, 4.15, 4.15, None, None),
     ("01/05/2025", 73.89, 69.01, 82.01, 13.00, 60.71, 4.15, 4.15, None, None),
     ("30/04/2025", 73.89, 70.04, 70.04, 13.00, 48.74, 4.15, 4.15, None, None),
+]
+
+# --- 41109 | FERTILIZANTES | IUF-TUF -> ZVF-VALEFERTIL | IMG_0584.MOV ---
+# RESOLVE o fluxo pendente "FERTILIZANTES IUF ZVF" (ja curado em
+# projeto_fluxo_tarifas, teto/km preservados pelo connect). Sem coluna de
+# descarga (servico nao aparece nesta rota). Frame limpo (30/07/2026),
+# soma validada: 57,22+4,11+4,11+9,19+2,67=77,30=tarifa contrato.
+DADOS[41109] = [
+    ("01/08/2026", 122.95, 77.30, 77.30, None, 57.22, 4.11, 4.11, 2.67, 9.19),
 ]
 
 

@@ -7,9 +7,22 @@ Extrai os parâmetros dos simuladores tarifários da ANTT (EFVM, FNS, RMN, FCA) 
 grava em logconsult.db → tabela tetos_parametros (formato longo: 1 linha por
 ferrovia × produto × faixa de distância).
 
-Mecânica ANTT:  teto (R$/t) = PARCELA_FIXA + rate(faixa da distância) × distância
-  - EFVM/FNS: rate único (uma faixa, até ∞)
-  - RMN/FCA:  rate decrescente por faixa de distância (aplicado à distância total)
+Mecânica ANTT (Res. 6.031/2023):
+    teto (R$/t) = PARCELA_FIXA + Σ_faixas (km DENTRO da faixa × rate da faixa)
+  A parcela variável é MARGINAL/CUMULATIVA, como faixa de imposto de renda: cada km é
+  remunerado ao rate da faixa em que ELE cai — NÃO ao rate da faixa em que a distância
+  TOTAL cai, aplicado à distância inteira.
+  - EFVM/FNS: rate único (uma faixa, até ∞) — as duas leituras coincidem
+  - RMN/FCA:  rates decrescentes por faixa, somados faixa a faixa
+
+  Correção de 31/jul/2026: esta docstring documentava "rate da faixa aplicado à distância
+  total", que é a leitura ERRADA (era também a fórmula do bloco "Simulador ANTT" do painel,
+  já corrigida). Ela não é sequer monotônica — FCA SOJA 1000 km → R$ 192,87 e 1001 km →
+  R$ 170,60: percurso maior com teto menor é impossível pra um teto desta forma — e
+  subestima 36,5% a 2001 km. Validação contra os 1.934 tetos gravados em `ipoa_teto`
+  (922 linhas onde as duas leituras divergem, km>500 e multi-faixa): a forma MARGINAL
+  reproduz o valor gravado com razão 1,0299–1,0302 (offset constante de +3,00% = forma
+  certa, diferença é só o índice de reajuste); a de faixa única espalha de 0,90 a 0,96.
 
 Uso:  python3 add_tetos.py
 """

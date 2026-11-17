@@ -48,6 +48,14 @@ DISCIPLINA DE LEITURA (ver relatorio da mineracao para detalhes completos):
   - re-cadastros (mesma vigencia, cadastros com timestamps diferentes e
     split frete/manobra diferente mas tarifa igual ou proxima) foram mantidos
     como linhas separadas, conforme instrucao.
+
+ATUALIZACAO 30/07/2026: lote adicional IMG_0577-0580.MOV traz 3 itens NOVOS
+(12612 ECE->VMR MINERIO FERRO, 39908 VOB->VMR MINERIO FERRO, 40330 VMR->VIC
+PRO SIDERURGICO) e uma extensao do historico do item 17395 ("serie antiga",
+2 vigencias mais recentes que a ja registrada). Nenhum destes fluxos estava
+na lista de pendencias (todos os itens ARCELORMITTAL/MOSAIC/USIMINAS
+pendentes ficam nos respectivos arquivos add_*) - dado complementar bonus,
+frames limpos, soma validada em todas as linhas.
 """
 
 import os
@@ -78,6 +86,16 @@ FLUXOS = {
     39640: dict(contrato="A_001_2020_C", origem="VTU", origem_nome="TUBARAO",
                 destino="VMR", destino_nome="MARIO CARVALHO",
                 produto="MINERIO FERRO", video="IMG_0489.MOV / IMG_0490.MOV"),
+    # --- lote IMG_0577-0580.MOV (30/07/2026): itens novos ---
+    12612: dict(contrato="A_001_2020_C", origem="ECE", origem_nome="CAPITAO EDUARDO FCA",
+                destino="VMR", destino_nome="MARIO CARVALHO",
+                produto="MINERIO FERRO", video="IMG_0577.MOV"),
+    39908: dict(contrato="A_001_2020_C", origem="VOB", origem_nome="OURO BRANCO",
+                destino="VMR", destino_nome="MARIO CARVALHO",
+                produto="MINERIO FERRO", video="IMG_0578.MOV"),
+    40330: dict(contrato="SR059-2018", origem="VMR", origem_nome="MARIO CARVALHO",
+                destino="VIC", destino_nome="INTENDENTE CAMARA",
+                produto="PRO SIDERURGICO", video="IMG_0580.MOV"),
 }
 
 # ---------------------------------------------------------------------------
@@ -97,6 +115,9 @@ DADOS = {}
 # validada por completo (soma = tarifa em todas as linhas).
 DADOS[17395] = [
     # vig_ini      vig_fim       TR      tarifa  frete   MO     MD     outros
+    # -- linhas acrescentadas 30/07/2026 (IMG_0579.MOV, serie antiga) --
+    ("2026-08-20", "2027-12-31", 49.26,  58.82,  43.32,  0.01,  15.49, 0.00),  # cadastro 17/08/2026 - frete=EFVM41,89+FCA1,43
+    ("2026-05-20", "2027-12-31", 49.26,  58.94,  43.40,  0.01,  15.53, 0.00),  # cadastro 19/05/2026 - frete=EFVM41,97+FCA1,43
     ("2026-07-20", "2029-12-31", 113.17, 118.05, None,   None,  None,  None),  # serie nova, servicos nao carregaram
     ("2026-06-20", "2029-12-31", 113.17, 117.98, None,   None,  None,  None),
     ("2026-05-20", "2029-12-31", 113.17, 118.91, None,   None,  None,  None),
@@ -179,6 +200,31 @@ DADOS[39640] = [
     # vig_ini      vig_fim       TR     tarifa  frete   MO     MD     outros
     ("2026-06-20", "2026-12-31", 60.97, 87.97, 53.02, 15.96, 18.99, 0.00),
     ("2026-05-20", "2026-12-31", 60.97, 88.15, 53.13, 15.99, 19.03, 0.00),
+]
+
+# --- 12612 | A_001_2020_C | ECE->VMR | MINERIO FERRO | IMG_0577.MOV ---
+# Item NOVO. Rota intermodal FCA+EFVM: FRETE(FCA)+FRETE(EFVM)+MANOBRA
+# ORIGEM(FCA)+MANOBRA DESTINO(EFVM)+TRANSBORDO ORIGEM(FCA). Video de 30,1s
+# com muito scroll-blur; so a linha mais recente (cadastro 22/12/2025) foi
+# lida sem blur (frame 0577_005). Restante do historico (2024-2025, muitos
+# frames com dupla-exposicao) omitido, nao inventado.
+DADOS[12612] = [
+    ("2025-12-20", "2026-01-31", 76.93, 59.43, 23.32, 17.19, 18.92, 0.00),
+]
+
+# --- 39908 | A_001_2020_C | VOB->VMR | MINERIO FERRO | IMG_0578.MOV ---
+# Item NOVO. Rota EFVM simples: FRETE + MANOBRA DESTINO + MANOBRA ORIGEM.
+# Video curto (4,7s), so a linha mais recente lida (cadastro 22/12/2025).
+DADOS[39908] = [
+    ("2025-12-20", "2026-01-31", 37.81, 72.65, 37.63, 15.99, 19.03, 0.00),
+]
+
+# --- 40330 | SR059-2018 | VMR->VIC | PRO SIDERURGICO | IMG_0580.MOV ---
+# Item NOVO. Rota EFVM simples: FRETE + MANOBRA DESTINO + MANOBRA ORIGEM.
+# Video curto (6,3s), 2 vigencias lidas sem blur.
+DADOS[40330] = [
+    ("2026-06-20", "2027-12-31", 34.40, 21.28, 21.27, 0.01, 0.00, 0.00),
+    ("2026-05-20", "2027-12-31", 34.40, 21.33, 21.32, 0.01, 0.00, 0.00),
 ]
 
 

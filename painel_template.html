@@ -1346,6 +1346,39 @@ const BRLmi=n=>n==null?'—':'R$ '+(n/1e6).toLocaleString('pt-BR',{minimumFracti
 const alvoPill=a=>a?'<span class="pill alvo">alvo</span>':'';
 const col=(v,lo,hi,c)=>`<div class="bar"><span style="width:${Math.max(2,Math.min(100,(v-lo)/(hi-lo)*100))}%;background:${c}"></span></div>`;
 
+/* ================= TETO ANTT — implementação ÚNICA da parcela variável =====================
+   Res. ANTT 6.031/2023: teto (R$/t) = parcela FIXA + parcela VARIÁVEL. A variável é MARGINAL /
+   CUMULATIVA por faixa de distância, como faixa de imposto de renda: cada km é remunerado ao
+   rate da faixa em que ELE cai — não ao rate da faixa em que a distância TOTAL cai.
+     teto = fixa + Σ_faixas (km dentro da faixa × rate da faixa)
+   Faixa com `ate_km = null` é a superior (sem limite). Faixa única aplica seu rate à distância toda.
+
+   Por que esta função existe (auditoria 31/jul/2026): havia DUAS implementações de `tetoANTT` no
+   arquivo — a do Painel do Cliente (marginal, correta) e a do bloco "Simulador ANTT" (aplicava o
+   rate ÚNICO da faixa da distância total à distância inteira). As duas são `function` dentro de
+   blocos `{...}`, então o hoisting de Annex B copiava ambas pro MESMO global e a segunda (a
+   errada) vencia. Além de colidirem, a fórmula do simulador é demonstravelmente inválida: não é
+   monotônica (FCA SOJA 1000 km → R$ 192,87 mas 1001 km → R$ 175,03; um percurso MAIOR devolvendo
+   teto MENOR é impossível pra um teto desta forma) e subestima até 36,5% a 2001 km. O erro é
+   perigoso na direção: teto baixo demais faz o frete parecer mais acima do teto do que está,
+   SUPERESTIMANDO a pretensão numa peça regulatória.
+   A forma marginal reproduz os 1.934 valores gravados em `ipoa_teto.teto` com desvio uniforme de
+   +3,00% (offset constante = forma certa; a diferença é o índice de reajuste da paramétrica).
+   Agora as duas pontas chamam ESTA função; nenhuma reimplementa a conta. */
+function tetoANTTmarginal(fixo, bands, km){
+  if(!bands||!bands.length) return null;
+  const f=+fixo||0;
+  if(bands.length===1){ const v=bands[0][1]*km; return {teto:f+v, variavel:v, rateEfetivo:bands[0][1]}; }
+  let v=0, prev=0;
+  for(const [ate,rate] of bands){
+    const top=ate==null?km:ate;
+    v += Math.max(0, Math.min(km,top)-prev)*rate;
+    prev=top;
+    if(ate!=null && km<=ate) break;
+  }
+  return {teto:f+v, variavel:v, rateEfetivo:km>0?v/km:bands[0][1]};
+}
+
 document.getElementById('gerado').innerHTML='Gerado em '+D.meta.gerado_em;
 /* helper: cada página monta seu próprio conjunto de KPIs (nada de indicador genérico global) */
 function kpiRow(id, items){
@@ -1876,6 +1909,31 @@ if(D.comparativo && D.comparativo.tarifas){
   const ehDP=it=>/^DP\b|DIREITO\s+DE\s+PASSAGEM/i.test(String(it||''));
   // ladoItem: DP ganhou categoria própria (era 'Outros'); Baldeação/Manobra conexão seguem em 'Outros'.
   const ladoItem=it=>ehDP(it)?'DP':/origem/i.test(it)?'Origem':/destino/i.test(it)?'Destino':'Outros';
+  // servicoItem: traduz o NOME do item de abertura (projeto_acessorias_abertas) para o rótulo de
+  // SERVIÇO da base de pares (fluxos_servico → SIMH.servicos). Achado da auditoria (31/jul/2026):
+  // o benchmark de par usava só o LADO do item (origem/destino), ignorando QUAL SERVIÇO é — então
+  // "Transbordo Origem" (lado=Origem) buscava estatística de MANOBRA ORIGEM e "reduzia" um preço
+  // de transbordo a um preço de manobra, que é outro serviço. Materialidade medida: R$ 27,86 mi/ano
+  // de ganho sem fundamento (10,0% do otimista total) — ex. LDC SOJA ZZB→ICZ, Transbordo Origem
+  // R$ 15,00/t "reduzido" a R$ 6,62/t de manobra (Δ R$ 8,38/t × 366 kt), ARCELORMITTAL PRO
+  // SIDERURGICO VTU→VEB R$ 22,45 → R$ 12,58. E existe base de par CORRETA e não usada: 779 linhas
+  // de TRANSBORDO ORIGEM no SIMH (13 clientes só em ZZB). Agora a chave de par é
+  // (serviço × lado × estação), nunca só (lado × estação): transbordo compara com transbordo,
+  // manobra com manobra. Serviço sem par naquela estação → null → item cai no valor real (sem
+  // ganho), NUNCA no preço de outro serviço (mesma regra de "0 honesto" do resto do sistema).
+  const servicoItem=it=>{
+    const s=String(it||'').toUpperCase();
+    if(ehDP(it)) return null;                                   // DP não é serviço acessório comparável
+    if(/TRANSBORDO/.test(s)) return /DESTINO/.test(s)?'TRANSBORDO DESTINO':'TRANSBORDO ORIGEM';
+    if(/BALDEA/.test(s))     return 'BALDEACAO';
+    if(/CONEX/.test(s))      return 'MANOBRA CONEXAO CHEIO';
+    if(/LIMPEZA/.test(s))    return 'LIMPEZA DE VAGAO';
+    if(/P[AÁ]TIO/.test(s))   return 'UTILIZACAO DE PATIO';
+    if(/DESCARGA/.test(s))   return 'DESCARGA';
+    if(/^CARGA\b/.test(s))   return 'CARGA';
+    if(/MANOBRA/.test(s))    return /DESTINO/.test(s)?'MANOBRA DESTINO':/ORIGEM/.test(s)?'MANOBRA ORIGEM':null;
+    return null;
+  };
   const LADO_COL={Origem:'var(--info)',Destino:'var(--warn)',Outros:'var(--mut)',DP:'var(--bad)'};
   // soma de DP de um fluxo (R$/t) e acessória SEM DP (= f.acessorias − DP). O banco continua com
   // f.acessorias INCLUINDO DP (tarifa_total = frete + acessorias, reconciliação intacta) — o DP
@@ -2047,7 +2105,21 @@ if(D.comparativo && D.comparativo.tarifas){
     // própria, honesto é 0 (mesma convenção: zero é honesto, nunca um número emprestado).
     // (lógica de match real rota×produto — incl. dedupe de "GERDAU ITEM nnnn" ambíguo —
     // extraída pra volRealUlt12KtDoFluxo() acima, reaproveitada por fluxoVolKtGanho())
-    const real=volRealUlt12KtDoFluxo(f, pcCli);
+    //
+    // achado da auditoria (31/jul/2026): aqui passava-se `pcCli` (o cliente ABERTO no Painel),
+    // não o cliente DA PRÓPRIA LINHA. volDefaultKt roda pra TODOS os clientes da carteira
+    // (gcPanel "Ganho potencial por cliente", tRank2 "Ranking de captura", vobTableRows...),
+    // não só pro selecionado — então o volume era procurado sob a identidade de cliente ERRADA:
+    // 85 fluxos caíam em 0,00 kt falso com o pcCli default (SELECTA) — ex. ARCELORMITTAL
+    // FIO MAQUINA VJM→EEL mostrava 0,00 em vez de 146,18 kt e AGREX SOJA PPN→QPM 0,00 em vez
+    // de 357,76 kt — e, pior, EMPRESTAVA volume entre clientes quando a rota coincidia
+    // (USIMINAS "PRO SIDERURGICO VOB VIC", sem volume_ano_ktu, herdava 12,07 kt do índice de
+    // volume da GERDAU na mesma rota quando pcCli=GERDAU: ganhoAcessCliente('USIMINAS') dava
+    // R$ 16.864.256 com GERDAU aberto e R$ 16.812.838 com USIMINAS aberto). Mesma classe do
+    // bug "valor emprestado da 1ª linha do cliente" já corrigido em ttFluxo/fluxoRota — e a
+    // razão pela qual volRealUlt12KtDoFluxo foi parametrizada por cliente. Fix: sempre o
+    // cliente da LINHA (canonPC, mesma canonicalização do resto do código), nunca o global.
+    const real=volRealUlt12KtDoFluxo(f, canonPC(f&&f.cliente));
     if(real!=null) return real;
     // achado do usuário (22/jul/2026, "várias rotas com volume 100,00, não faz sentido"):
     // "100" era um fallback fixo INVENTADO, sem lastro em nenhum dado real — pra rota sem
@@ -2095,9 +2167,20 @@ if(D.comparativo && D.comparativo.tarifas){
   // 3) fallback pro default de sempre (volume_ano_ktu, senão 0) só quando não há dado real
   // de volume pra essa rota×produto.
   function fluxoVolKtGanho(f){
-    const s=st(f.cliente), k=fkey(f);
+    const s=st(canonPC(f&&f.cliente)), k=fkey(f);
     if(s.teto[k]&&s.teto[k].volKt!=null) return s.teto[k].volKt;
-    const real=volRealUlt12KtDoFluxo(f, f.cliente);
+    return volDefaultKtGanho(f);
+  }
+  // MESMA prioridade do fluxoVolKtGanho, mas SEM o override manual do usuário — é o "default
+  // de volume pro ganho" (real últimos-12-meses primeiro, `volume_ano_ktu`/0 só como fallback).
+  // Existe separado por 2 motivos: (1) o painel precisa comparar o valor DIGITADO pelo usuário
+  // contra o default pra marcar o campo como "editado" (se o default já embutisse o override,
+  // a comparação seria sempre igual e o marcador nunca acenderia); (2) deixa fluxoVolKtGanho
+  // como uma linha só — override, senão este default —, sem duplicar a regra de prioridade.
+  // canonPC(f.cliente): o cliente da PRÓPRIA LINHA canonicalizado (a base tem
+  // "SELECTA (retroativo)" como valor de cliente) — nunca o pcCli global (ver volDefaultKt).
+  function volDefaultKtGanho(f){
+    const real=volRealUlt12KtDoFluxo(f, canonPC(f&&f.cliente));
     return real!=null?real:volDefaultKt(f);
   }
   // volume ano (kt) REAL TOTAL de uma estação, como origem OU destino, somando TODOS OS
@@ -2163,7 +2246,15 @@ if(D.comparativo && D.comparativo.tarifas){
     const r=fluxoRota(f);
     if(r&&r.origem&&VOB_WHITELIST.has(pcCli+'|'+r.origem+'|Origem')) return vobVolKtEstacao(r.origem,'origem');
     if(r&&r.destino&&VOB_WHITELIST.has(pcCli+'|'+r.destino+'|Destino')) return vobVolKtEstacao(r.destino,'destino');
-    return fluxoVolKt(f);
+    // fora da whitelist: fluxoVolKtGanho, não fluxoVolKt. O custo estimado é renderizado DENTRO
+    // do mesmo subcard que anuncia "vol. N kt/ano" e "cada R$ 1/t vale R$ X/ano" (ver
+    // tetoFluxoPanel) e a legenda descreve a conta como "tudo ÷ volume ano" — depois do fix de
+    // volume do painel (31/jul/2026), manter aqui o `volume_ano_ktu` estático faria o custo ser
+    // diluído por um volume DIFERENTE do que a tela declara logo acima (SELECTA EBJ→IUF: painel
+    // 238,63 kt, custo dimensionado em 0,22 kt). As duas funções leem o MESMO override manual
+    // (s.teto[k].volKt) primeiro, então o campo "Volume (kt/ano)" continua governando o custo
+    // exatamente como antes; muda só o DEFAULT, que passa a ser o volume realizado.
+    return fluxoVolKtGanho(f);
   }
   // gk das PREMISSAS (não só do volume) a usar pro "Custo operacional estimado da manobra" de 1
   // fluxo — pedido do usuário (23/jul/2026): painel por-fluxo e vobCustoPanel devem ser "o mesmo
@@ -2271,20 +2362,15 @@ if(D.comparativo && D.comparativo.tarifas){
   const REAJ=(PJ.reajustes)||[];   // preços contratuais F-LINK por fluxo × vigência (reajuste a reajuste)
   const TETO_REG=(PJ.teto_reg)||{};   // segmentação multi-ferrovia por cliente (hoje só LD Celulose)
   const TPARAMS=(PJ.tetos_params)||{};   // parâmetros ANTT: ferrovia→produto→{fixo,bands:[[ate_km,rate]]}
-  // teto ANTT (R$/t) = parcela fixa + Σ (km na faixa × rate) — banda marginal/cumulativa; faixa
-  // com ate_km=null é a superior (sem limite). Faixa única (1 band) aplica o rate à distância toda.
-  function tetoANTT(ferrovia, produto, km){
+  // teto ANTT (R$/t) por ferrovia×produto — delega a conta em tetoANTTmarginal (implementação
+  // única, no topo do arquivo; ver o comentário longo lá sobre a colisão das duas `tetoANTT`).
+  // Renomeada pra tetoANTTfer: `tetoANTT` era um nome disputado por esta e pela função do bloco
+  // do Simulador via hoisting de Annex B, e a do simulador (fórmula errada) vencia no global.
+  function tetoANTTfer(ferrovia, produto, km){
     const fer=TPARAMS[ferrovia]; if(!fer) return null;
     const p=fer[produto]; if(!p) return null;
-    if(p.bands.length===1) return p.fixo + p.bands[0][1]*km;
-    let t=p.fixo, prev=0;
-    for(const [ate,rate] of p.bands){
-      const top=ate==null?km:ate;
-      t += Math.max(0, Math.min(km,top)-prev)*rate;
-      prev=top;
-      if(ate!=null && km<=ate) break;
-    }
-    return t;
+    const r=tetoANTTmarginal(p.fixo, p.bands, km);
+    return r?r.teto:null;
   }
   // Peers de manobra restritos à MESMA família de mercadoria. Pedido original (jul/2026): QPM
   // recebe tanto grãos (terminal TPSL) quanto siderurgia/combustíveis por outras vias — misturar
@@ -2306,13 +2392,39 @@ if(D.comparativo && D.comparativo.tarifas){
   // estatística de manobra dos pares VLI numa estação (dados reais cobrados, fluxos_servico),
   // sempre restrita à família do produto quando informado — CE (comp_estacoes, precomputado
   // sem recorte de família no build) não serve mais aqui, cai pro cálculo direto do SIMH.
-  function paresEstacao(estacao, servico, produto){
-    const rows=SIMH.filter(r=>r.servicos===servico&&(servico==='MANOBRA ORIGEM'?r.origem===estacao:r.destino===estacao)
-      &&(!produto||mesmaFamilia(produto, r.produto)));
+  // mediana de uma lista já ordenável — com nº PAR de elementos usa a média dos 2 centrais
+  // (antes pegava sempre o superior, viesando o benchmark "moderado" pra cima).
+  const mediana=xs=>{ if(!xs.length) return null; const a=xs.slice().sort((x,y)=>x-y), i=a.length>>1;
+    return a.length%2?a[i]:(a[i-1]+a[i])/2; };
+  // PARES de um serviço numa estação. Duas correções da auditoria (31/jul/2026):
+  //  (1) chave = (SERVIÇO × lado × estação), não mais (lado × estação) — ver servicoItem acima.
+  //      O lado sai do próprio nome do serviço ('...ORIGEM' casa r.origem, senão r.destino).
+  //  (2) o par é o CLIENTE, não a linha de contrato, e o próprio cliente NUNCA é seu par:
+  //      - `excluirCli` tira as linhas do cliente analisado (ele não pode ser referência de si
+  //        mesmo — a n=2 isso partia o gap exatamente ao meio, por construção);
+  //      - cada cliente-par é primeiro reduzido a UM valor (mediana das linhas dele), e só então
+  //        se tira mediana/mínimo ENTRE clientes. Sem isso um cliente com 14 linhas de contrato
+  //        superava um com 1 linha: em EBJ/MANOBRA ORIGEM havia 15 linhas — 14 da ADM e 1 da
+  //        própria SELECTA — e a UI anunciava "2 cliente(s) na estação" havendo UM comparador só.
+  //        Mediana por linha R$ 22,00 vs. por cliente R$ 31,50.
+  //      `min` (cenário otimista, "menor par") usa a MESMA agregação por cliente: o menor par é o
+  //      cliente mais barato, não a linha de contrato mais barata solta — senão um outlier isolado
+  //      de um cliente grande viraria o alvo de todo mundo.
+  //  `n` passa a contar comparadores REAIS (clientes-pares, já sem o próprio cliente).
+  function paresEstacao(estacao, servico, produto, excluirCli){
+    if(!estacao||!servico) return null;
+    const porOrigem=/ORIGEM/.test(servico);
+    const alvo=excluirCli!=null?canonPC(excluirCli):null;
+    const rows=SIMH.filter(r=>r.servicos===servico&&(porOrigem?r.origem===estacao:r.destino===estacao)
+      &&(!produto||mesmaFamilia(produto, r.produto))
+      &&(alvo==null||canonPC(r.cliente)!==alvo));
     if(!rows.length) return null;
-    const m=rows.reduce((a,b)=>a.tarifa<=b.tarifa?a:b);
-    return {med:rows.map(r=>r.tarifa).sort((a,b)=>a-b)[Math.floor(rows.length/2)],
-      min:Math.min(...rows.map(r=>r.tarifa)), n:new Set(rows.map(r=>r.cliente)).size, cliMin:m.cliente};
+    const porCli=new Map();
+    rows.forEach(r=>{ const c=canonPC(r.cliente); if(!porCli.has(c)) porCli.set(c,[]); porCli.get(c).push(r.tarifa); });
+    const vals=[...porCli.entries()].map(([c,ts])=>({cliente:c, v:mediana(ts)})).filter(x=>x.v!=null);
+    if(!vals.length) return null;
+    const m=vals.reduce((a,b)=>a.v<=b.v?a:b);
+    return {med:mediana(vals.map(x=>x.v)), min:m.v, n:vals.length, cliMin:m.cliente, nLinhas:rows.length};
   }
   // Referência de mercado (menor par, já restrito à mesma família) por LADO do item de
   // manobra — usada como DEFAULT do "simulado" nas tabelas de Teto e Acessórias (pedido do
@@ -2328,11 +2440,17 @@ if(D.comparativo && D.comparativo.tarifas){
   // moderado). Pedido do usuário (21/jul/2026): "otimista busca menor acessória de cada rota...
   // moderado... usa a média dos pares de manobra origem e destino" — parametrizado aqui pra
   // alimentar os 2 cenários dos cards "Total — otimista/moderado" sem duplicar a busca de par.
-  function refMinLado(rota, lado, sel){
-    if(!rota||!rota.origem) return null;
-    if(lado==='Origem'){ const p=paresEstacao(rota.origem,'MANOBRA ORIGEM',rota.produto); return p?p[sel||'min']:null; }
-    if(lado==='Destino'){ const p=paresEstacao(rota.destino,'MANOBRA DESTINO',rota.produto); return p?p[sel||'min']:null; }
-    return null;
+  // ASSINATURA MUDOU (31/jul/2026): recebe o NOME DO ITEM, não mais o "lado". O serviço é
+  // derivado do item (servicoItem) e o lado sai do serviço — assim é impossível, por construção,
+  // comparar um serviço contra a estatística de outro (era o bug do Transbordo vs. Manobra).
+  // `cliente` é o dono do item: entra como exclusão (ninguém é par de si mesmo, ver paresEstacao).
+  // Serviço não comparável (DP) ou sem par na estação → null → quem chama mantém o valor real.
+  function refMinLado(rota, item, sel, cliente){
+    if(!rota) return null;
+    const srv=servicoItem(item); if(!srv) return null;
+    const est=/ORIGEM/.test(srv)?rota.origem:rota.destino; if(!est) return null;
+    const p=paresEstacao(est, srv, rota.produto, cliente);
+    return p?p[sel||'min']:null;
   }
   // manobra nas outras ferrovias (tabelas formais RUMO/MRS/VALE), casando a família do produto
   function manobraFerrovias(produto){
@@ -2466,11 +2584,31 @@ if(D.comparativo && D.comparativo.tarifas){
   // manobrador têm headcounts distintos) × fator de revezamento (cobertura de folgas/férias pra
   // operação todo dia do ano) = headcount de cada função. Custo = headcount × salário carregado
   // × 12 — CUSTO FIXO ANUAL de folha própria, não mais R$/h de terceiro.
+  // ---- REVISÃO 31/jul/2026 (auditoria): piso rígido de headcount -------------------------
+  // O modelo fazia `turnosDia = Math.max(1, ceil(horas/365/turno))` — um PISO de 1 turno
+  // simultâneo 365 dias/ano, independente das horas realmente necessárias. Com o fator de
+  // revezamento isso contratava ~4 FTEs (R$ 280.800/ano) até pra um fluxo que precisa de 0,3 h
+  // por ANO de manobra. Resultado medido: 0,216 kt → R$ 1.570,87/t; 1 kt → R$ 340,20/t; 100 kt →
+  // R$ 4,52/t; 500 kt → R$ 1,81/t — e 66 de 181 fluxos com custo modelado ACIMA da tarifa
+  // cobrada, o que inverte a tese da consultoria e zera o ganho dessas linhas em silêncio.
+  // Correção: a mão de obra passa a sair das HORAS EFETIVAMENTE NECESSÁRIAS, por RATEIO de uma
+  // equipe COMPARTILHADA — que é como pátio ferroviário de fato opera: a mesma turma atende
+  // vários fluxos, e atribuir a folha inteira a um fluxo que consome 3% dela é erro de alocação
+  // de custo, não conservadorismo. O dimensionamento DEDICADO (headcount inteiro) continua sendo
+  // calculado e exibido na legenda, porque é a leitura física correta de "quanta gente estaria de
+  // plantão"; o que muda é quanto disso o FLUXO paga. Quando a equipe está cheia (turnos exigidos
+  // ≥ 1) o rateio vale 1 e o modelo volta a ser byte a byte o antigo — nada muda no volume alto.
   function dimEquipe(p, dm){
     const horasOperAno=dm.manobrasAno*p.tempo_h;
-    const turnosDia=dm.semBase?0:Math.max(1,Math.ceil((horasOperAno/365)/Math.max(1,p.horas_turno)));
+    const turnosExato=dm.semBase?0:(horasOperAno/365)/Math.max(1,p.horas_turno);   // fracionário
+    const turnosDia=dm.semBase?0:Math.max(1,Math.ceil(turnosExato));               // equipe dedicada
     const nMaquinistas=dm.semBase?0:Math.ceil(turnosDia*p.n_maquinista_turno*p.fator_revez);
     const nManobradores=dm.semBase?0:Math.ceil(turnosDia*p.n_manobrador_turno*p.fator_revez);
+    const rateio=(dm.semBase||turnosDia<=0)?0:Math.min(1, turnosExato/turnosDia);
+    const fteMaquinista=nMaquinistas*rateio, fteManobrador=nManobradores*rateio;
+    // abaixo de meio turno simultâneo o fluxo sozinho não sustenta operação dedicada — quem
+    // consome usa esta flag pra dizer isso, em vez de exibir um R$/t sem sentido.
+    const dedicadoViavel=turnosExato>=0.5;
     // quantos equipamentos SIMULTÂNEOS a operação precisa: horas de manobra do ano ÷ teto de
     // horas úteis realistas de UM equipamento/ano (util_h) — mesma lógica do nEquip do "Novo
     // Negócio" (buildEst). Vale nas 2 modalidades: em locação é um flag operacional ("quantas
@@ -2478,8 +2616,12 @@ if(D.comparativo && D.comparativo.tarifas){
     // está correta independente de quantas máquinas dividem o trabalho); em aquisição também
     // multiplica o CAPEX (ver custoManobra) porque não dá pra comprar "0,3 de uma locomotiva".
     const nEquip=dm.semBase?0:Math.max(1,Math.ceil(horasOperAno/Math.max(1,p.util_h)));
-    return {horasOperAno, turnosDia, nMaquinistas, nManobradores, nEquip,
-      custoAno: nMaquinistas*p.sal_maquinista*12 + nManobradores*p.sal_manobrador*12};
+    return {horasOperAno, turnosExato, turnosDia, nMaquinistas, nManobradores, nEquip,
+      rateio, fteMaquinista, fteManobrador, dedicadoViavel,
+      // folha de uma equipe EXCLUSIVA (referência, exibida na legenda)
+      custoAnoDedicado: nMaquinistas*p.sal_maquinista*12 + nManobradores*p.sal_manobrador*12,
+      // folha ATRIBUÍDA a este fluxo = fração da equipe que ele consome
+      custoAno: (fteMaquinista*p.sal_maquinista + fteManobrador*p.sal_manobrador)*12};
   }
   // legenda da modalidade ativa (racional do cálculo + equipamentos sugeridos da pesquisa)
   function manobraLegenda(prem){
@@ -2489,7 +2631,11 @@ if(D.comparativo && D.comparativo.tarifas){
       ? 'sem volume anual (últimos 12 meses) disponível pra este fluxo — ajuste o volume na aba Teto pra dimensionar a manobra (custo fica R$ 0 até lá).'
       : `Dimensionamento: volume ano ${N1(dm.volAno_t/1000)} kt ÷ TB do trem (${p.vagoes} vagões × ${p.tu_vagao} t/vagão = ${N1(dm.tbTrem)} t) = ${N1(dm.trensAno)} trens/ano; cada trem "parte" em ${dm.manobrasPorTrem} manobra(s) (${p.vagoes} vagões ÷ até ${dm.porte} vagões/manobra do equipamento) = <b>${N1(dm.manobrasAno)} manobras/ano</b> (${N1(eq.horasOperAno)} h/ano).`;
     const eqTxt=dm.semBase?''
-      : ` <b>Equipe própria:</b> ${N1(eq.horasOperAno)} h/ano ÷ turno de ${p.horas_turno} h = ${eq.turnosDia} turno(s) simultâneo(s)/dia necessário(s); × ${p.n_maquinista_turno} maquinista(s) e ${p.n_manobrador_turno} manobrador(es) por turno × fator de revezamento ${p.fator_revez} (cobertura de folgas/férias p/ operar todo dia do ano) = <b>${eq.nMaquinistas} maquinista(s)</b> (R$ ${N1(p.sal_maquinista)}/mês carregado) + <b>${eq.nManobradores} manobrador(es)</b> (R$ ${N1(p.sal_manobrador)}/mês carregado) = ${BRL0(eq.custoAno)}/ano de folha.`;
+      : ` <b>Equipe:</b> ${N1(eq.horasOperAno)} h/ano ÷ (turno de ${p.horas_turno} h × 365 dias) = <b>${eq.turnosExato.toFixed(2)} turno(s) simultâneo(s)</b> de ocupação real. Uma operação DEDICADA (turma exclusiva de plantão todo dia do ano) seria ${eq.turnosDia} turno(s) × ${p.n_maquinista_turno} maquinista(s) e ${p.n_manobrador_turno} manobrador(es) por turno × revezamento ${p.fator_revez} = ${eq.nMaquinistas} maquinista(s) + ${eq.nManobradores} manobrador(es) = ${BRL0(eq.custoAnoDedicado)}/ano de folha cheia.`
+        + (eq.rateio<0.995
+          ? ` Este fluxo ocupa <b>${Math.round(eq.rateio*1000)/10}%</b> dessa equipe, então entra no custo só o rateio correspondente — <b>${eq.fteMaquinista.toFixed(2)} FTE de maquinista + ${eq.fteManobrador.toFixed(2)} FTE de manobrador = ${BRL0(eq.custoAno)}/ano</b> (equipe compartilhada com os demais fluxos do pátio; cobrar a folha inteira de quem usa uma fração dela é erro de alocação, não conservadorismo).`
+              + (eq.dedicadoViavel?'':` <b>Atenção:</b> com ${eq.turnosExato.toFixed(2)} turno de ocupação, este volume NÃO sustenta uma operação de manobra dedicada — o custo acima só faz sentido como serviço compartilhado/sob demanda no pátio.`)
+          : ` A equipe fica cheia (ocupação ${Math.round(eq.rateio*100)}%), então a folha entra integral: ${BRL0(eq.custoAno)}/ano.`);
     const nEquipTxt=(!dm.semBase&&eq.nEquip>1)
       ? ` <b>Atenção — mais de 1 equipamento:</b> ${N1(eq.horasOperAno)} h/ano de manobra ÷ ${N1(p.util_h)} h úteis/ano de 1 equipamento (teto realista, com manutenção/parada) = seriam necessários <b>${eq.nEquip} equipamentos simultâneos</b> (não apenas 1) pra dar conta do volume.`
       : '';
@@ -2515,8 +2661,11 @@ if(D.comparativo && D.comparativo.tarifas){
       : horasOperAno*p.loco_rh;                                    // locação: R$/h × horas totais do ano (billing já correto independente de nEquip)
     // linhas explícitas (antes dentro do overhead genérico): liderança/gestão da base,
     // EPI/segurança por pessoa, meio ambiente % dos diretos; SG&A backoffice fecha a conta.
-    const liderAno=p.sal_lider*12*p.lider_por_base;
-    const epiAno=p.epi_pessoa_ano*(eq.nMaquinistas+eq.nManobradores+p.lider_por_base);
+    // liderança e EPI seguem o MESMO rateio da equipe (ver dimEquipe): são custos da base
+    // compartilhada, não deste fluxo sozinho — sem isso um líder fixo recriaria o piso de custo
+    // que o rateio acabou de remover, e o R$/t voltaria a explodir no volume baixo.
+    const liderAno=p.sal_lider*12*p.lider_por_base*eq.rateio;
+    const epiAno=p.epi_pessoa_ano*(eq.fteMaquinista+eq.fteManobrador+p.lider_por_base*eq.rateio);
     const diretos=custoDieselAno+eq.custoAno+liderAno+epiAno+custoEquipAno;
     const mambAno=diretos*p.mamb_pct/100;
     const custoTotalAno=(diretos+mambAno)*(1+p.ovh_pct/100);
@@ -2534,7 +2683,13 @@ if(D.comparativo && D.comparativo.tarifas){
     return grupo.fluxos.map(f=>{
       const r=fluxoRota(f), it=itensDe(f);
       const manLado=it.filter(a=>ladoItem(a.item)===grupo.lado).reduce((a,b)=>a+b.valor_rs_t,0);
-      const vol=volDefaultKt(f);
+      // fluxoVolKtGanho, não volDefaultKt: esta coluna multiplica direto num GANHO
+      // (`ganho:(manLado-custo)*vol*1000`), então tem que usar o volume REAL últimos-12-meses,
+      // a mesma base do resumo/ganhoAcessCliente — e não o `volume_ano_ktu` estático (achado da
+      // auditoria 31/jul/2026: o painel "Manobras de <estação> a custo" mostrava 1 kt logo
+      // abaixo de um resumo que dizia 117,0 kt pra mesma rota; ARCELORMITTAL VJM/Destino somava
+      // 0,00 kt no total da tabela).
+      const vol=fluxoVolKtGanho(f);
       return {label:(r.origem&&r.destino?r.origem+'→'+r.destino:canonPC(f.fluxo))+' · '+r.produto,
               manLado, vol, ganho:Math.max(0,manLado-custo)*vol*1000};
     });
@@ -2716,14 +2871,55 @@ if(D.comparativo && D.comparativo.tarifas){
   // vale nos 3 lugares que usam pcVolAnos/pcVolMeses (Teto e Acessórias, Isonomia, Retroativo).
   const PC_ULT12='Últimos 12 meses';
   const PC_VOL_ANOS=[PC_ULT12, ...[...new Set([...PCVM.map(v=>String(v[4])),'2026'])].sort((a,b)=>b-a)];
-  const _pcHojeIdx=(()=>{ const d=new Date(); return d.getFullYear()*12+(d.getMonth()+1); })();
-  // teste combinado (ano,mês) — usado onde a linha tem granularidade mensal
-  function pcEmPeriodo(ano, mes){
+  // Âncora da janela "Últimos 12 meses" — NUNCA `new Date()`.
+  // Achado da auditoria (31/jul/2026): este arquivo já documentava, em `pcUlt12Sum`, POR QUE
+  // ancorar em "hoje" está errado (volume_hist termina em set/2025 enquanto "hoje" é jul/2026) —
+  // e ancorava em hoje mesmo assim aqui, nos caminhos de retroativo e isonomia. Efeito: marcar
+  // "Últimos 12 meses" truncava ou esvaziava a janela em silêncio, porque ela caía inteira depois
+  // do último mês que a base tem. Agora vale a MESMA convenção do lado do volume: a janela termina
+  // no ÚLTIMO MÊS COM DADO REAL. Quem chama passa a âncora da SUA série (`pcIdxMax` das linhas que
+  // está filtrando, exatamente como pcUlt12Sum faz por série); sem âncora explícita, cai na âncora
+  // GLOBAL da base — o mês mais recente com dado em qualquer série, calculado uma vez sob demanda.
+  // Só o "Últimos 12 meses" (janela IMPLÍCITA/rolante) muda: seleção EXPLÍCITA de Ano/Mês pelo
+  // usuário continua sendo filtro literal, sem âncora nenhuma.
+  const pcIdxMax=rows=>{ let mx=-1; (rows||[]).forEach(r=>{ const a=r&&r.ano, m=r&&r.mes;
+    if(a!=null&&m!=null){ const i=Number(a)*12+Number(m); if(i>mx) mx=i; } }); return mx<0?null:mx; };
+  // nº de MESES DE CALENDÁRIO distintos numa série (não nº de linhas — a série pode ter mais de
+  // uma linha no mesmo mês, ex. grades do mesmo produto no mesmo mês).
+  const nMesesDistintos=rows=>new Set((rows||[]).filter(r=>r&&r.ano!=null&&r.mes!=null)
+    .map(r=>Number(r.ano)*12+Number(r.mes))).size;
+  // Janela dos últimos 12 MESES DE CALENDÁRIO de uma série mensal, ancorada no último mês COM
+  // DADO da própria série. Substitui o `.slice(-12)`, que contava LINHAS: como a série agrega
+  // várias linhas por mês (grades do mesmo produto), 12 linhas podiam cobrir só 9 meses — e,
+  // como o contador dizia "12", o fator de anualização (12/nº de meses) ficava em 1 e um número
+  // de 9 meses ia pra tela rotulado como anual (achado da auditoria 31/jul/2026: SELECTA
+  // EBJ→IUF FARELO DE SOJA, 45 linhas → slice(-12) pegava 12 linhas em 9 meses distintos).
+  const ult12Meses=rows=>{
+    const fim=pcIdxMax(rows); if(fim==null) return [];
+    return (rows||[]).filter(r=>{ const i=Number(r.ano)*12+Number(r.mes); return i<=fim && i>fim-12; });
+  };
+  let _pcAncoraBase=null;
+  function pcAncoraBase(){
+    if(_pcAncoraBase===null){
+      let mx=-1;
+      const bump=i=>{ if(i!=null&&i>mx) mx=i; };
+      bump(pcIdxMax(HISTM));
+      bump(pcIdxMax((((D.comparativo||{}).sazonal)||{}).fluxos||[]));
+      PCVM.forEach(v=>{ const i=Number(v[4])*12+Number(v[5]); if(isFinite(i)&&i>mx) mx=i; });
+      _pcAncoraBase=mx<0?0:mx;
+    }
+    return _pcAncoraBase;
+  }
+  // teste combinado (ano,mês) — usado onde a linha tem granularidade mensal.
+  // `ancoraIdx` (opcional): fim da janela de 12 meses, em índice ano*12+mês. Passe o
+  // `pcIdxMax(...)` da própria série pra que a janela acompanhe o dado dela.
+  function pcEmPeriodo(ano, mes, ancoraIdx){
     if(!pcVolAnos.size&&!pcVolMeses.size) return true;
     if(pcVolAnos.has(PC_ULT12)){
       if(mes==null) return false;   // linha sem granularidade mensal nunca cabe numa janela de 12 meses
+      const fim=(ancoraIdx!=null&&ancoraIdx>0)?ancoraIdx:pcAncoraBase();
       const idx=ano*12+mes;
-      return idx<=_pcHojeIdx && idx>_pcHojeIdx-12;
+      return idx<=fim && idx>fim-12;
     }
     return (!pcVolAnos.size||pcVolAnos.has(String(ano)))&&(!pcVolMeses.size||pcVolMeses.has(PC_MESES[mes-1]));
   }
@@ -2889,7 +3085,15 @@ if(D.comparativo && D.comparativo.tarifas){
       const acimaParesMuito=tt&&tt.acess_sugerida!=null&&tt.acess_sugerida>0&&(acessSemDP/tt.acess_sugerida-1)>0.3;
       const acessDestaque=ipoaMuitoAlto||acimaParesMuito;
       const aberturaTot=itensA.reduce((x,a)=>x+a.valor_rs_t,0);
-      const volDef=volDefaultKt(f);
+      // volDefaultKtGanho (real últimos-12-meses primeiro), não volDefaultKt (`volume_ano_ktu`
+      // estático primeiro) — achado da auditoria (31/jul/2026): este mesmo `volKt` alimenta o
+      // "vol. X kt/ano" do cabeçalho, o "cada R$ 1/t vale R$ Y/ano" e os KPIs de ganho logo
+      // abaixo, e divergia do resumo por até ~1000× (SELECTA FARELO DE SOJA EBJ→IUF: 0,22 kt
+      // aqui vs. 238,63 kt no resumo, porque volume_ano_ktu=215,71 t/ano; USIMINAS PRO
+      // SIDERURGICO EEL→VIC 0,93 vs. 116,96). Continua respeitando o override manual do
+      // usuário (s.teto[k].volKt) — volDefaultKtGanho é só o DEFAULT, sem override, pra que
+      // `simVol` abaixo ainda consiga detectar "o usuário editou o volume".
+      const volDef=volDefaultKtGanho(f);
       const volKt=(s.teto[k]&&s.teto[k].volKt!=null)?s.teto[k].volKt:volDef;
       const cenAtivo=(s.teto[k]||{}).cenario||'';
       // simulação ativa = algum item, volume ou premissa difere do "cobrado hoje"
@@ -2935,7 +3139,7 @@ if(D.comparativo && D.comparativo.tarifas){
         // combinações cliente×origem; nas demais, o simulado default é o valor real, igual
         // a qualquer item sem par de mercado.
         const tbZero=a&&ehTransbordo(it)&&transbordoZeraDefault(f.cliente,fr&&fr.origem);
-        const refMkt=a?refMinLado(fr,lado):null;
+        const refMkt=a?refMinLado(fr,it,'min',f.cliente):null;
         const vSimDefault=tbZero?0:(refMkt!=null&&a)?Math.min(refMkt,a.valor_rs_t):(a?a.valor_rs_t:null);
         const temOverride=s.teto[k]&&s.teto[k].items&&s.teto[k].items[it]!=null;
         const vSim=temOverride?s.teto[k].items[it]:vSimDefault;
@@ -3001,8 +3205,12 @@ if(D.comparativo && D.comparativo.tarifas){
 
         ${(()=>{ // ---- referências de mercado pra manobra (subcard visível) + premissas (details) ----
           const rota=fr; if(!rota||!rota.origem) return '';
-          const pOri=paresEstacao(rota.origem,'MANOBRA ORIGEM',rota.produto);
-          const pDes=paresEstacao(rota.destino,'MANOBRA DESTINO',rota.produto);
+          // `f.cliente` como exclusão: o painel de referências mostra PARES, e ninguém é par de si
+          // mesmo. Sem isso a linha "N cliente(s) na estação" contava o próprio cliente (SELECTA em
+          // EBJ anunciava "2 cliente(s)" havendo UM comparador real) e o "mais barato" podia ser o
+          // próprio cliente — divergindo do benchmark que o simulador de fato usa (ver paresEstacao).
+          const pOri=paresEstacao(rota.origem,'MANOBRA ORIGEM',rota.produto,f.cliente);
+          const pDes=paresEstacao(rota.destino,'MANOBRA DESTINO',rota.produto,f.cliente);
           const mf=manobraFerrovias(rota.produto);
           const _pgk=custoPremGk(f);
           const prem={...PREM_DEF, ...(_pgk?(s.vobPrem=s.vobPrem||{}, s.vobPrem[_pgk]||{}):((s.teto[k]||{}).premissas||{})), vol_kt:custoVolKtDe(f)};
@@ -3206,7 +3414,9 @@ if(D.comparativo && D.comparativo.tarifas){
         if(!perAtivo) return null;
         const r=fluxoRota(f); if(!r||!r.origem) return null;
         const hm=histMatchRows(HISTM.filter(h=>h.cliente===pcCli&&h.origem===r.origem&&h.destino===r.destino), r.produto);
-        let filtrado=hm.filter(h=>pcEmPeriodo(h.ano,h.mes));
+        // âncora do "Últimos 12 meses" = último mês COM DADO desta série (ver pcEmPeriodo)
+        const _anc=pcIdxMax(hm);
+        let filtrado=hm.filter(h=>pcEmPeriodo(h.ano,h.mes,_anc));
         if(!filtrado.length) return null;
         if(filtrado.length>=3){
           const acessOrd=filtrado.map(h=>h.acess).sort((a,b)=>a-b);
@@ -3220,7 +3430,7 @@ if(D.comparativo && D.comparativo.tarifas){
         let sw=0, sf=0, sa=0, stt=0;
         filtrado.forEach(h=>{ const w=h.vol_kt||0; sw+=w; sf+=h.frete*w; sa+=h.acess*w; stt+=h.total*w; });
         if(!sw) return null;
-        return {frete:sf/sw, acessorias:sa/sw, total:stt/sw, nMeses:filtrado.length};
+        return {frete:sf/sw, acessorias:sa/sw, total:stt/sw, nMeses:nMesesDistintos(filtrado)};
       };
       // ganho projetado = (AO+AD+AOt cobradas hoje) − (AO-S+AD-S+AOt-S simuladas) × volume da rota
       // escala (2º parâmetro) reescala o delta proporcionalmente quando o período tem acessória
@@ -3243,7 +3453,7 @@ if(D.comparativo && D.comparativo.tarifas){
         // do ganhoFluxo — ver TB_ZERA_ORIGEM/transbordoZeraDefault).
         const simDe=a=>{const cfg=sRes.teto[k]; const v=cfg&&cfg.items&&cfg.items[a.item]; if(v!=null) return v;
           if(ehTransbordo(a.item)&&transbordoZeraDefault(f.cliente,r&&r.origem)) return 0;
-          const ref=refMinLado(r,ladoItem(a.item)); return (ref!=null&&ref<a.valor_rs_t)?ref:a.valor_rs_t;};
+          const ref=refMinLado(r,a.item,'min',f.cliente); return (ref!=null&&ref<a.valor_rs_t)?ref:a.valor_rs_t;};
         const lado=l=>it.filter(a=>ladoItem(a.item)===l);
         const manOri0=lado('Origem').reduce((x,a)=>x+a.valor_rs_t,0);
         const manDes0=lado('Destino').reduce((x,a)=>x+a.valor_rs_t,0);
@@ -3396,7 +3606,16 @@ if(D.comparativo && D.comparativo.tarifas){
         const volKtTot=vobVolKtEstacao(grupo.estacao, grupo.ladoTag);
         const prem={...PREM_DEF, ...(s.vobPrem[gk]||{}), vol_kt:volKtTot};
         const custo=Math.round(custoManobra(prem)*100)/100;
-        const nEquipVob=dimEquipe(prem,dimManobra(prem)).nEquip;
+        const _dmVob=dimManobra(prem), _eqVob=dimEquipe(prem,_dmVob);
+        const nEquipVob=_eqVob.nEquip;
+        // painel sem escala pra dimensionar: menos de ~1 manobra por mês na estação não é uma
+        // operação de pátio, é resíduo de dado (ex. ARCELORMITTAL VJM/Destino: 0,23 kt, série que
+        // acaba em jan/2023 — o painel exibia R$ 1.474,04/t de "custo operacional"). Em vez de
+        // publicar um R$/t sem sentido, o painel diz o que está acontecendo. Achado da auditoria
+        // 31/jul/2026.
+        const semEscala=!_dmVob.semBase && _dmVob.manobrasAno<12;
+        const avisoEscala=semEscala?`<div class="note fine" style="border-left:3px solid var(--warn)">
+          <b>Sem escala pra dimensionar:</b> o volume real que passa por ${escAttr(grupo.estacao)} neste lado é de apenas ${N1(volKtTot)} kt/ano — ${N1(_dmVob.manobrasAno)} manobra(s) no ano inteiro, menos de uma por mês. Abaixo desse patamar não existe operação de manobra pra dimensionar (nem dedicada, nem compartilhada) e o R$/t abaixo é só aritmética: não use este painel como referência de pleito. Confira se a série de volume desta estação está atualizada.</div>`:'';
         const aplicado=grupo.fluxos.every(f=>{ const cfg=s.teto[fkey(f)]||{};
           return itensDe(f).filter(a=>ladoItem(a.item)===grupo.lado).every(a=>{
             const v=(cfg.items&&cfg.items[a.item]!=null)?cfg.items[a.item]:a.valor_rs_t;
@@ -3407,10 +3626,11 @@ if(D.comparativo && D.comparativo.tarifas){
         return `<div class="panel">
         <h2>Manobras de ${ladoLc} ${escAttr(grupo.estacao)} a custo — ${escAttr(pcCli)} <span class="pill alvo">simulação</span></h2>
         <div class="desc">${grupo.fluxos.length} ${grupo.fluxos.length===1?'fluxo':'fluxos'} deste cliente ${ladoVerbo} <b>${escAttr(grupo.estacao)}</b>. Como o custo marginal da manobra cai com escala, o pleito é levar <b>todas as manobras de ${ladoLc} (${escAttr(grupo.estacao)})</b> ao <b>custo operacional</b> — dimensionado e <b>diluído pelo volume TOTAL REAL</b> que passa por ${escAttr(grupo.estacao)} (todos os clientes, não só ${escAttr(pcCli)}), não ao preço cheio cobrado hoje. Ajuste as premissas do custo (mesmo simulador da Selecta) e clique em aplicar; propaga pros deltas de cada rota e pros Ganhos Potenciais do topo.</div>
+        ${avisoEscala}
         <div class="subcard" style="margin-bottom:12px">
           <div class="sec-h" style="border-top:0;padding-top:0">Custo operacional da manobra <span class="h-hint">simulador bottom-up, editável</span></div>
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
-            <div class="kpi" style="min-width:180px;margin:0"><div class="lbl">Custo estimado da manobra</div><div class="val" id="pcVobCusto_${gkId}">R$ ${N1(custo)}<small>/t · bottom-up</small></div></div>
+            <div class="kpi" style="min-width:180px;margin:0"><div class="lbl">Custo estimado da manobra</div><div class="val" id="pcVobCusto_${gkId}">${semEscala?'<span style="color:var(--warn)">sem escala</span>':'R$ '+N1(custo)}<small>${semEscala?'volume insuficiente pra dimensionar':'/t · bottom-up'}</small></div></div>
             <div class="kpi" style="min-width:140px;margin:0" id="pcVobNEquip_${gkId}"><div class="lbl">Equipamentos necessários</div><div class="val">${nEquipVob}<small>simultâneos, dado o volume diluído</small></div></div>
             <span class="chip" data-pcvobcusto="apply" data-pcvobgrupo="${escAttr(gk)}" style="cursor:pointer">Aplicar a todas as manobras de ${ladoLc} ${escAttr(grupo.estacao)}</span>
             <span class="chip" data-pcvobcusto="reset" data-pcvobgrupo="${escAttr(gk)}" style="cursor:pointer">Restaurar tarifa</span>
@@ -3496,7 +3716,8 @@ if(D.comparativo && D.comparativo.tarifas){
     // histórico mensal sequencial de propósito — filtrar antes quebraria a comparação mês a
     // mês; o filtro só entra na hora de SOMAR (totDireto/totOsc) e de destacar a linha.
     const perAtivo=!!(pcVolAnos.size||pcVolMeses.size);
-    const emPeriodo=h=>!perAtivo||pcEmPeriodo(h.ano,h.mes);
+    const _ancHm=pcIdxMax(hm);   // âncora do "Últimos 12 meses" = último mês COM DADO desta série
+    const emPeriodo=h=>!perAtivo||pcEmPeriodo(h.ano,h.mes,_ancHm);
     let totDireto=0, totOsc=0;
     const trMes=hm.map(h=>{
       const dentro=emPeriodo(h);
@@ -3609,7 +3830,7 @@ if(D.comparativo && D.comparativo.tarifas){
           <td class="num">${sel.pr.nMeses} <span class="muted">meses (${sel.pr.anos[0]}${sel.pr.anos.length>1?'–'+sel.pr.anos[sel.pr.anos.length-1]:''})</span></td>
           <td class="num mono">${BRL0(sel.pr.mod)}</td>
           <td class="num mono"><b>${BRL0(sel.pr.otm)}</b></td></tr></tbody></table></div>
-      <div class="note fine">Sobrepreço acumulado nos meses realizados (P&amp;L) em que ${escAttr(pcCli)} pagou acima da mediana / do menor pagador da mesma rota×produto — valor histórico já pago, base de um pleito de isonomia retroativa (Res. ANTT 3.694/2011). Não anualizado. O detalhe mês a mês está na aba Isonomia Tarifária.</div>`
+      <div class="note fine">Sobrepreço acumulado nos meses realizados (P&amp;L) em que ${escAttr(pcCli)} pagou acima da mediana / do menor pagador da mesma rota×produto — valor histórico já pago, base de um pleito de isonomia retroativa (Res. ANTT 3.694/2011). Não anualizado. O detalhe mês a mês está na aba Isonomia Tarifária.${sel.pr.dupDe?` <b>Esta rota é o mesmo fluxo físico de ${escAttr(sel.pr.dupDe)}</b> (origens agrupadas no Corredor Norte): o retroativo de isonomia já está contado naquela linha e aqui aparece zerado, pra não somar duas vezes o mesmo dinheiro.`:''}</div>`
       :'<div class="note fine">Esta rota não tem preço mensal realizado com par pra estimar retroativo de isonomia.</div>';
 
     el.innerHTML=resumoHtml+`<div class="panel" id="pcRetroDetalhe">
@@ -3639,15 +3860,53 @@ if(D.comparativo && D.comparativo.tarifas){
   }
 
   function pcRecalcTeto(){
-    const pj=pjDo(pcCli), atuais=pj.filter(f=>!isRetro(f.fluxo)), s=st();
+    // (não precisa mais de `st()` aqui: o override salvo do usuário é lido dentro de
+    // ganhoFluxo/fluxoVolKtGanho, as fontes únicas usadas abaixo)
+    const pj=pjDo(pcCli), atuais=pj.filter(f=>!isRetro(f.fluxo));
     atuais.forEach((f,fi)=>{
       const k=fkey(f), itensA=itensDe(f);
       const aberturaTot=itensA.reduce((x,a)=>x+a.valor_rs_t,0);
-      const sim=itensA.reduce((x,a)=>{ const v=(s.teto[k]&&s.teto[k].items&&s.teto[k].items[a.item]!=null)?s.teto[k].items[a.item]:a.valor_rs_t; return x+v; },0);
-      const volKt=(s.teto[k]&&s.teto[k].volKt!=null)?s.teto[k].volKt:volDefaultKt(f);
-      const ganhoRsT=aberturaTot-sim;
+      // FONTE ÚNICA do cenário simulado: ganhoFluxo(f,'min') + fluxoVolKtGanho(f) — exatamente
+      // o que a coluna "Simulado" da tabela logo abaixo, o resumo ("Ganho projetado") e o card
+      // do topo (ganhoAcessCliente) já usam. Achado da auditoria (31/jul/2026): este bloco
+      // tinha sua PRÓPRIA conta de `sim` ("override do usuário, senão o valor de HOJE"), que
+      // ignorava o default automático de "menor par de mercado" que a coluna Simulado aplica
+      // sozinha — então, SEM nenhuma edição do usuário, o KPI dizia ganho R$ 0,00/t enquanto a
+      // tabela imediatamente abaixo mostrava um delta real (167 de 314 rotas; SELECTA FARELO DE
+      // SOJA EBJ→IUF: KPI R$ 126,43/t e ganho R$ 0,00/t vs. Simulado R$ 71,60/t, Δ R$ 54,83/t,
+      // com o resumo da MESMA rota anunciando R$ 13.084.253 de ganho projetado). Mesma classe do
+      // bug de reimplementação paralela já corrigido em ganhoAcessCliente (ver ganhoFluxo).
+      // O override manual por item (s.teto[k].items[...]) continua tendo precedência: ele é lido
+      // DENTRO de ganhoFluxo (simDe), que é a razão de ela existir — não se perde nada aqui.
+      const ganhoRsT=ganhoFluxo(f,'min');
+      // `sim` = quanto a abertura passa a somar no cenário. Math.max(0,...) só protege o modo
+      // PORTFÓLIO de ganhoFluxo (fluxo sem NENHUM item aberto: aberturaTot=0 e o ganho vem do
+      // excesso de IPOA), onde a subtração ficaria negativa e o rótulo "manobras simuladas"
+      // não faria sentido.
+      const sim=Math.max(0, aberturaTot-ganhoRsT);
+      const volKt=fluxoVolKtGanho(f);   // volume REAL últimos-12-meses (ou o editado) — mesma base do resumo
       const tarifaSim=f.tarifa_total-ganhoRsT;
-      const acessSim=f.acessorias-ganhoRsT;
+      // IPOA simulado SEM Direito de Passagem. `f.acessorias` (banco) INCLUI DP, e o KPI dividia
+      // esse total pelo frete — enquanto a tabela dois painéis acima já mostra o MESMO indicador
+      // com DP removido (`acessSemDP`/`ipoaSemDP`). Mesma tela, mesmo fluxo, dois números: SELECTA
+      // EBJ→IUF marcava 59,7% na tabela e 65,8% no KPI, 6,2 pp de diferença (achado da auditoria
+      // 31/jul/2026). DP é repasse interconcessionárias, juridicamente componente do FRETE e não
+      // operação acessória (posição do projeto desde 21/jul/2026, ver ehDP/dpDe) — fica fora de
+      // todo numerador de IPOA, sem exceção. O ganho simulado (ganhoRsT) nunca toca DP (refMinLado
+      // devolve null pra DP), então subtraí-lo da acessória JÁ sem DP é consistente.
+      const acessSim=acessSemDPde(f)-ganhoRsT;
+      // benchmark do IPOA = média REAL da malha da rota (ipoaAlvoRota, 37–48% típico), a mesma
+      // referência de todos os outros pontos de IPOA do painel — não o "ref. 24,8%" fixo que este
+      // KPI trazia hardcoded (24,8% é o GATILHO da Res. 6.031/2023, não a média de mercado).
+      const _rIpoa=fluxoRota(f);
+      const ipoaAlvoKpi=_rIpoa&&_rIpoa.origem?ipoaAlvoRota(_rIpoa.origem,_rIpoa.destino):IPOA_REF;
+      // quando a rota não mapeia pra nenhuma ferrovia conhecida, ipoaAlvoRota cai no IPOA_REF
+      // (24,8%) — que é o GATILHO da Res. 6.031/2023, não uma média de malha. O rótulo tem que
+      // dizer qual dos dois está em jogo, em vez de chamar os dois de "média da malha".
+      const _ipoaFer=_rIpoa&&_rIpoa.origem?RF_MAP.get(_rIpoa.origem+'|'+_rIpoa.destino):null;
+      const ipoaRefLbl=(_ipoaFer&&IPOA_FERROVIA[_ipoaFer]!=null)
+        ? 'média da malha '+escAttr(_ipoaFer)+' '+Math.round(ipoaAlvoKpi*100)+'%'
+        : 'gatilho ANTT '+(Math.round(ipoaAlvoKpi*1000)/10).toLocaleString('pt-BR')+'% (rota sem ferrovia mapeada)';
       // ---- potencial de ganho por cenário (referências reais de par VLI na estação, indep. dos sliders) ----
       // otimista = trazer cada manobra à MAIS BARATA de par VLI na estação; realista = à MEDIANA dos pares.
       // itens sem referência de estação (conexão/direito de passagem) ficam intactos nos dois cenários.
@@ -3657,18 +3916,21 @@ if(D.comparativo && D.comparativo.tarifas){
       // quando existia par de mercado real pra estação correta (achado: GERDAU VTU tem 12 pares e
       // média R$11,2/t, mas o cálculo comparava contra VOB/EPI, sem nenhum par — R$0 falso).
       const rota=fluxoRota(f);
-      const pOri=rota?paresEstacao(rota.origem,'MANOBRA ORIGEM',rota.produto):null;
-      const pDes=rota?paresEstacao(rota.destino,'MANOBRA DESTINO',rota.produto):null;
       // Conceito (pedido do usuário, 21/jul/2026, pra reconciliar com o resumo de Teto e
-      // Acessórias): OTIMISTA = menor par de mercado em Origem/Destino; MODERADO = mediana dos
-      // pares em Origem/Destino. Direito de Passagem mantém o valor real (22/jul/2026: "não
-      // deixar zerado" — sem par de estação pra DP, não entra no desconto). Transbordo default
-      // ZERO só na whitelist cliente×origem (22/jul/2026 — ver transbordoZeraDefault).
+      // Acessórias): OTIMISTA = menor par de mercado do item; MODERADO = mediana dos pares.
+      // Direito de Passagem mantém o valor real (22/jul/2026: "não deixar zerado" — refMinLado
+      // não tem referência pra DP, cai no valor real naturalmente). Transbordo default ZERO só na
+      // whitelist cliente×origem (22/jul/2026 — ver transbordoZeraDefault).
+      // 31/jul/2026 (2ª rodada da auditoria): esta conta era uma TERCEIRA reimplementação paralela
+      // do benchmark — casava por /origem|destino/ no NOME do item contra a estatística de MANOBRA
+      // da estação (o mesmo bug transbordo-vs-manobra já corrigido em refMinLado) e aceitava o
+      // próprio cliente como par. Agora delega em refMinLado, exatamente como simDe/ganhoFluxo:
+      // uma referência só, impossível de divergir. Continua independente dos sliders de propósito
+      // — é o potencial de MERCADO do fluxo, não o cenário editado pelo usuário.
       const potencialRsT=sel=>itensA.reduce((x,a)=>{
         let alvo=a.valor_rs_t;
         if(ehTransbordo(a.item)&&transbordoZeraDefault(f.cliente,rota&&rota.origem)) alvo=0;
-        else if(/origem/i.test(a.item)&&pOri&&pOri[sel]!=null) alvo=Math.min(a.valor_rs_t,pOri[sel]);
-        else if(/destino/i.test(a.item)&&pDes&&pDes[sel]!=null) alvo=Math.min(a.valor_rs_t,pDes[sel]);
+        else { const ref=refMinLado(rota,a.item,sel,f.cliente); if(ref!=null) alvo=Math.min(a.valor_rs_t,ref); }
         return x+Math.max(0,a.valor_rs_t-alvo);
       },0);
       let potOtm=potencialRsT('min'), potReal=potencialRsT('med');
@@ -3681,7 +3943,7 @@ if(D.comparativo && D.comparativo.tarifas){
         ['Manobras simuladas','R$ '+N1(sim)+'/t','itens abertos — eram R$ '+N1(aberturaTot)+'/t',''],
         ['Ganho do cenário','R$ '+N1(Math.max(0,ganhoRsT))+'/t','× '+Math.round(volKt)+' kt/ano',''],
         ['Tarifa simulada','R$ '+N1(tarifaSim)+'/t', tarifaSim>f.teto?'ainda R$ '+N1(tarifaSim-f.teto)+'/t acima do teto':'DENTRO do teto ANTT',''],
-        ['IPOA simulado', f.frete>0?Math.round(acessSim/f.frete*100)+'%':'—','ref. 24,8%',''],
+        ['IPOA simulado', f.frete>0?Math.round(acessSim/f.frete*100)+'%':'—','sem DP · ref. '+ipoaRefLbl,''],
         ['Ganho anual do cenário', BRLmi(Math.max(0,ganhoRsT)*volKt*1000),'/ano neste fluxo',''],
         // ganhos de consultoria (success fee) — só fora do modo apresentação (dado interno, não vai pro cliente)
         ...(pcPresent?[
@@ -3707,7 +3969,30 @@ if(D.comparativo && D.comparativo.tarifas){
   const GRAOS_RE=/SOJA|MILHO|FARELO|SORGO|FERTIL|ADUBO|ACUCAR|A[CÇ]ÚCAR/i;
   const SAZ=(((D.comparativo||{}).sazonal)||{}).fluxos||[];
   const MESN=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-  const famTok=p=>String(p||'').toUpperCase().split(/[ \-]/)[0];
+  // ---- chave de PRODUTO da isonomia/retroativo -------------------------------------------
+  // Era `famTok` = 1º token do nome ("FARELO DE SOJA - SPC" → "FARELO"), a MESMA classe de bug já
+  // corrigida duas vezes neste arquivo do lado do volume e do histórico de acessória (pcNormFull/
+  // histMatchRows): produtos fisicamente diferentes caindo na mesma chave só por compartilharem a
+  // 1ª palavra. Aqui isso pooling "CALCARIO" com "CALCARIO FINO" (USIMINAS EMS→VIC) e "PRODUTO
+  // SIDERURGICO" com "Produto Siderúrgico Especial" (GERDAU EDV→VTU) — produtos genuinamente
+  // distintos — enquanto o objetivo legítimo era só juntar GRADES do mesmo produto.
+  // `pcProdIso` = pcNormFull (sinônimo de 1º token + remoção de "DE/DO/DA" + caixa) + remoção de
+  // acento + remoção do SUFIXO DE GRADE (o que vem depois de um hífen). Confirmado contra a base:
+  // dos 66 produtos de SAZ só 3 têm hífen e os 3 são grade — "FARELO DE SOJA - SPC",
+  // "FARELO DE SOJA- HIPRO", "FARELO DE MILHO - DDG". Grade do MESMO produto pool (SELECTA
+  // EBJ→IUF volta a ser uma série só); palavra extra SEM hífen ("FINO", "ESPECIAL") não é grade e
+  // não pool. O casamento em si segue a convenção já estabelecida no arquivo (`histMatchRows`):
+  // NOME COMPLETO exato primeiro, e só então um único candidato inequívoco por prefixo.
+  const pcProdIso=p=>pcNormFull(String(p||'').split(/\s*-\s*/)[0])
+    .normalize('NFD').replace(/[̀-ͯ]/g,'');
+  const sazMatchRows=(rows, produto)=>{
+    const full=pcProdIso(produto);
+    const exact=rows.filter(x=>pcProdIso(x.produto)===full);
+    if(exact.length) return exact;
+    const norms=[...new Set(rows.map(x=>pcProdIso(x.produto)))];
+    const cands=norms.filter(n=>n&&n!==full&&(n.startsWith(full)||full.startsWith(n)));
+    return cands.length===1?rows.filter(x=>pcProdIso(x.produto)===cands[0]):[];
+  };
   // isonomia de grãos, Corredor Norte (pedido do usuário): PIN/PPN é a mesma rota de escoamento
   // (PIN = onde os demais players carregam, PPN = onde a Agrex carrega); PPT/PIP idem (PPT = Nova
   // Agri, PIP = ponto genérico). Espelha o mesmo agrupamento feito no backend (build_painel.py,
@@ -3715,7 +4000,21 @@ if(D.comparativo && D.comparativo.tarifas){
   const ROTA_GRUPO_NORTE={PIN:'PIN+PPN',PPN:'PIN+PPN',PPT:'PPT+PIP',PIP:'PPT+PIP'};
   const origGrupo=o=>ROTA_GRUPO_NORTE[o]||o;
   let pcIsoModo={}, pcIsoAno={}, pcIsoMes={};
-  const sazDaRota=r=>SAZ.filter(x=>origGrupo(x.origem)===origGrupo(r.origem)&&x.destino===r.destino&&famTok(x.produto)===famTok(r.produto));
+  const sazDaRota=r=>sazMatchRows(
+    SAZ.filter(x=>origGrupo(x.origem)===origGrupo(r.origem)&&x.destino===r.destino), r.produto);
+  // chave do FLUXO FÍSICO pra isonomia — exatamente os 3 campos que `sazDaRota` usa pra casar.
+  // Duas linhas do CT com esta MESMA chave (ex. NOVA AGRI PPT→QPM SOJA e PIP→QPM SOJA, ou AGREX
+  // PPN→QPM SOJA e PIN→QPM SOJA) não são dois fluxos: são o mesmo fluxo escrito com as duas
+  // grafias de origem que o ROTA_GRUPO_NORTE agrupa de propósito. Como `sazDaRota` devolve o
+  // MESMO conjunto de meses pras duas, `ganhoRotaIso` devolve números idênticos e somar as duas
+  // conta o mesmo dinheiro 2×. Achado da auditoria (31/jul/2026): NOVA AGRI "Isonomia — otimista"
+  // R$ 90.585.359 com R$ 35.984.190 (40%) duplicados (PPT/PIP→QPM em SOJA e MILHO), AGREX
+  // R$ 92.070.836 com R$ 27.267.886 (30%); o mesmo no retroativo (39%/33%), propagando pro
+  // "Total — otimista" e pros cards de Consultoria (20% de êxito). Ver o uso em
+  // ganhoIsoCliente/retroIsoCliente — a dedupe vale SÓ pro caminho mensal (sazDaRota), nunca
+  // pro caminho de contrato vigente, que lê campos da própria linha do CT e é genuinamente
+  // distinto por origem.
+  const isoGrupoKey=r=>origGrupo(r.origem)+'|'+r.destino+'|'+pcProdIso(r.produto);
 
   function pcRenderIso(){
     const ct=ctDo(pcCli), el=document.getElementById('pcTabIso');
@@ -3779,10 +4078,12 @@ if(D.comparativo && D.comparativo.tarifas){
     const isoColExtra=pcCli!=='LD CELULOSE';
     const isoResumoRows=porRotaOrd.map(r=>{
       const ativa=r.rk===rk;
-      return `<tr data-pcgoiso="${escAttr(r.rk)}" style="cursor:pointer${ativa?';background:var(--amber-bg)':''}">
-        <td>${escAttr(r.rota.origem+'→'+r.rota.destino)}</td>
+      // linha marcada como `dupDe` = mesma rota física de outra origem já contada (Corredor
+      // Norte, ver isoGrupoKey) — fica visível, mas com ganho zerado pra não contar 2×.
+      return `<tr data-pcgoiso="${escAttr(r.rk)}" style="cursor:pointer${ativa?';background:var(--amber-bg)':''}${r.dupDe?';opacity:.55':''}">
+        <td>${escAttr(r.rota.origem+'→'+r.rota.destino)}${r.dupDe?` <span class="pill" style="font-size:9.5px;background:rgba(255,255,255,.06)" title="Mesmo fluxo físico de ${escAttr(r.dupDe)} (origens agrupadas no Corredor Norte) — o ganho já está contado naquela linha, aqui fica zerado pra não somar duas vezes.">= ${escAttr(r.dupDe)}</span>`:''}</td>
         <td><span class="muted">${escAttr(r.rota.produto)}</span></td>
-        <td class="muted">${escAttr(r.modo)}</td>
+        <td class="muted">${escAttr(r.dupDe?'mesmo fluxo já contado':r.modo)}</td>
         ${isoColExtra?`<td class="num">${r.volKt?N1(r.volKt):'—'}</td>
         <td class="num mono">${r.deltaMod>0.005?'R$ '+N1(r.deltaMod):'—'}</td>
         <td class="num mono">${r.deltaOtm>0.005?'R$ '+N1(r.deltaOtm):'—'}</td>`:''}
@@ -3999,9 +4300,23 @@ if(D.comparativo && D.comparativo.tarifas){
     if(it.length===0){
       // MODO PORTFÓLIO por fluxo (sem nenhum item de abertura) — ganho por excesso de IPOA vs.
       // média real da malha (ver ipoaAlvoRota), só com volume REAL do próprio fluxo.
+      // 31/jul/2026 (auditoria): este ramo IGNORAVA `sel`, então otimista == moderado pra todo
+      // fluxo sem item aberto (14 dos clientes têm pelo menos um) — o cenário "moderado" não era
+      // moderado, era uma cópia do otimista. Agora os dois cenários têm alvos distintos, na mesma
+      // lógica dos itens abertos (otimista = melhor referência; moderado = referência tolerante):
+      //   otimista ('min') → trazer a acessória à MÉDIA REAL DA MALHA (alvoIpoa);
+      //   moderado ('med') → trazer só o que passa da FAIXA DE TOLERÂNCIA de 20% sobre essa média
+      //                      (alvoIpoa × 1,2), que é EXATAMENTE o mesmo corte já usado no resto do
+      //                      painel pra marcar um fluxo como "IPOA descolado" (ipoaMuitoAlto /
+      //                      acimaIpoa). Fica só a parcela inequivocamente fora de padrão — a
+      //                      leitura conservadora — e nunca mais que o otimista, por construção.
+      // Nota: aqui `f.acessorias` não precisa do desconto de DP (acessSemDPde) porque este ramo só
+      // roda quando o fluxo NÃO tem nenhum item aberto — logo não tem item de DP (dpDe(f)=0).
       if(rf && rf.origem && f.frete>0 && f.acessorias!=null && f.volume_ano_ktu){
         const alvoIpoa=ipoaAlvoRota(rf.origem,rf.destino);
-        return Math.max(0, f.acessorias-alvoIpoa*f.frete);
+        const IPOA_TOLERANCIA=1.2;
+        const alvo=(sel==='med')?alvoIpoa*IPOA_TOLERANCIA:alvoIpoa;
+        return Math.max(0, f.acessorias-alvo*f.frete);
       }
       return 0;
     }
@@ -4013,7 +4328,7 @@ if(D.comparativo && D.comparativo.tarifas){
     // qualquer item sem par de mercado.
     const simDe=a=>{const v=cfg&&cfg.items&&cfg.items[a.item]; if(v!=null) return v;
       if(ehTransbordo(a.item)&&transbordoZeraDefault(f.cliente,rf&&rf.origem)) return 0;
-      const ref=refMinLado(rf,ladoItem(a.item),sel); return (ref!=null&&ref<a.valor_rs_t)?ref:a.valor_rs_t;};
+      const ref=refMinLado(rf,a.item,sel,f.cliente); return (ref!=null&&ref<a.valor_rs_t)?ref:a.valor_rs_t;};
     const real=it.reduce((x,a)=>x+a.valor_rs_t,0);
     const sim=it.reduce((x,a)=>x+simDe(a),0);
     return Math.max(0, real-sim);
@@ -4055,11 +4370,15 @@ if(D.comparativo && D.comparativo.tarifas){
     const perAtivo=!!(pcVolAnos.size||pcVolMeses.size);
     if(ehGrao && ownAll.length){
       const own=perAtivo
-        ? ownAll.filter(r=>pcEmPeriodo(r.ano,r.mes))
-        : ownAll.slice(-12);
+        ? ownAll.filter(r=>pcEmPeriodo(r.ano,r.mes,pcIdxMax(ownAll)))
+        : ult12Meses(ownAll);
       const somaSel=getter=>own.reduce((x,r)=>x+(r.n_cli_mes>=2?Math.max(0,getter(r)):0)*r.voltu,0);
       const somaMed=somaSel(r=>r.preco-r.med_mes), somaMin=somaSel(r=>r.preco-r.min_mes);
-      const fator=(!perAtivo&&own.length<12&&own.length>0)?12/own.length:1;
+      // anualização por MESES DE CALENDÁRIO cobertos, nunca por nº de linhas: a série pode ter
+      // mais de uma linha no mesmo mês (grades do mesmo produto) e `own.length` chegava a 12 com
+      // só 9 meses de dado, travando o fator em 1 — um número de 9 meses saía rotulado "/ano".
+      const nMes=nMesesDistintos(own);
+      const fator=(!perAtivo&&nMes<12&&nMes>0)?12/nMes:1;
       // volume do período (kt) + delta de tarifa (R$/t) por cenário — pedido do usuário
       // (21/jul/2026): "colocar o volume do período e o ganho do delta tarifa em cada
       // cenário" na tabela "Ganho por rota". volT soma o volume de TODOS os meses do
@@ -4068,7 +4387,7 @@ if(D.comparativo && D.comparativo.tarifas){
       const volT=own.reduce((x,r)=>x+r.voltu,0);
       const deltaOtm=volT>0?somaMin/volT:0, deltaMod=volT>0?somaMed/volT:0;
       return {otm:somaMin*fator, mod:somaMed*fator, volKt:volT/1000*fator, deltaOtm, deltaMod,
-        modo:perAtivo?`período filtrado (${own.length} ${own.length===1?'mês':'meses'})`:(own.length>=12?'últimos 12 meses realizados':`anualizado (${own.length} ${own.length===1?'mês':'meses'})`), n:own.length};
+        modo:perAtivo?`período filtrado (${nMes} ${nMes===1?'mês':'meses'})`:(nMes>=12?'últimos 12 meses realizados':`anualizado (${nMes} ${nMes===1?'mês':'meses'} com dado)`), n:nMes};
     }
     const s=st(), cfg=s.iso[rkey(rSel)]||{};
     const volKt=cfg.volKt!=null?cfg.volKt:(rSel.vol_t?rSel.vol_t/1000:0);
@@ -4081,11 +4400,21 @@ if(D.comparativo && D.comparativo.tarifas){
   function ganhoIsoCliente(){
     const ct=ctDo(pcCli);
     const rotas=ct.filter(r=>r.n_cli_rota>=2||sazDaRota(r).length);
-    let otm=0, mod=0; const porRota=[];
+    let otm=0, mod=0; const porRota=[]; const vistos=new Map();
     rotas.forEach(r=>{
       const g=ganhoRotaIso(r);
-      otm+=g.otm; mod+=g.mod;
-      porRota.push({label:r.origem+'→'+r.destino+' · '+r.produto, rk:rkey(r), rota:r, ...g});
+      // dedupe do Corredor Norte (ver isoGrupoKey): só no caminho MENSAL — `ganhoRotaIso`
+      // devolve n=nº de meses nesse caminho e n=null no caminho de contrato vigente, que
+      // depende de campos da PRÓPRIA linha do CT (vol_t/min_pares/med_pares) e por isso nunca
+      // pode ser deduplicado. A linha duplicada continua na tabela (nada é escondido), mas com
+      // ganho/volume zerados e `dupDe` apontando pra linha que ficou com o valor — assim o
+      // somatório das linhas bate exatamente com o total dos cards.
+      const kg=isoGrupoKey(r), ehMensal=g.n!=null;
+      const dupDe=(ehMensal&&vistos.has(kg))?vistos.get(kg):null;
+      if(ehMensal&&!dupDe) vistos.set(kg, r.origem+'→'+r.destino);
+      if(!dupDe){ otm+=g.otm; mod+=g.mod; }
+      porRota.push({label:r.origem+'→'+r.destino+' · '+r.produto, rk:rkey(r), rota:r, ...g,
+        dupDe, ...(dupDe?{otm:0, mod:0, volKt:0, deltaOtm:0, deltaMod:0}:{})});
     });
     return {otm, mod, porRota};
   }
@@ -4099,7 +4428,8 @@ if(D.comparativo && D.comparativo.tarifas){
   function ganhoRetroCliente(){
     const pj=pjDo(pcCli), atuais=pj.filter(f=>!isRetro(f.fluxo));
     const iso=retroIsoCliente();
-    const isoDaRota=r=>r?iso.porRota.find(pr=>pr.rota.origem===r.origem&&pr.rota.destino===r.destino&&famTok(pr.rota.produto)===famTok(r.produto)):null;
+    // mesma chave de produto da isonomia (pcProdIso — grade pool, produto diferente não; ver lá)
+    const isoDaRota=r=>r?iso.porRota.find(pr=>pr.rota.origem===r.origem&&pr.rota.destino===r.destino&&pcProdIso(pr.rota.produto)===pcProdIso(r.produto)):null;
     const porFluxo=atuais.map(f=>{
       const rota=fluxoRota(f);
       const ac=retroAcessDaRota(f);
@@ -4121,17 +4451,26 @@ if(D.comparativo && D.comparativo.tarifas){
   function retroIsoCliente(){
     // filtro de PERÍODO compartilhado (pcVolAnos/pcVolMeses) — pedido do usuário 20/jul/2026
     const perAtivo=!!(pcVolAnos.size||pcVolMeses.size);
-    const emPeriodo=x=>!perAtivo||pcEmPeriodo(x.ano,x.mes);
+    // âncora POR ROTA (ver pcEmPeriodo): cada rota tem seu próprio último mês com dado
+    const emPeriodo=(x,anc)=>!perAtivo||pcEmPeriodo(x.ano,x.mes,anc);
     const rotas=ctDo(pcCli).filter(r=>sazDaRota(r).some(x=>canonPC(x.cliente)===pcCli));
-    let otm=0, mod=0; const porRota=[];
+    let otm=0, mod=0; const porRota=[]; const vistos=new Map();
     rotas.forEach(r=>{
-      const own=sazDaRota(r).filter(x=>canonPC(x.cliente)===pcCli&&x.n_cli_mes>=2&&emPeriodo(x))
+      const _mine=sazDaRota(r).filter(x=>canonPC(x.cliente)===pcCli), _anc=pcIdxMax(_mine);
+      const own=_mine.filter(x=>x.n_cli_mes>=2&&emPeriodo(x,_anc))
         .sort((a,b)=>(a.ano*12+a.mes)-(b.ano*12+b.mes));
       if(!own.length) return;
       let o=0, m=0; const anos=new Set();
       own.forEach(x=>{ o+=Math.max(0,x.preco-x.min_mes)*x.voltu; m+=Math.max(0,x.preco-x.med_mes)*x.voltu; anos.add(x.ano); });
-      otm+=o; mod+=m;
-      porRota.push({rota:r, label:r.origem+'→'+r.destino+' · '+r.produto, otm:o, mod:m, nMeses:own.length, anos:[...anos].sort(), own});
+      // dedupe do Corredor Norte (ver isoGrupoKey). Aqui TODAS as rotas vêm do caminho mensal
+      // por construção (`rotas` já é filtrado por sazDaRota), e `own` depende só de sazDaRota(r)
+      // + cliente + período — duas linhas do CT com a mesma chave de grupo produzem `own`
+      // idêntico. Sem isto, PPT→QPM e PIP→QPM (mesmo fluxo físico) somavam 2× no retroativo.
+      const kg=isoGrupoKey(r);
+      const dupDe=vistos.has(kg)?vistos.get(kg):null;
+      if(!dupDe){ vistos.set(kg, r.origem+'→'+r.destino); otm+=o; mod+=m; }
+      porRota.push({rota:r, label:r.origem+'→'+r.destino+' · '+r.produto,
+        otm:dupDe?0:o, mod:dupDe?0:m, dupDe, nMeses:nMesesDistintos(own), anos:[...anos].sort(), own});
     });
     return {otm, mod, porRota};
   }
@@ -4163,20 +4502,38 @@ if(D.comparativo && D.comparativo.tarifas){
       const rt=ganhoRetroCliente();
       terOtm=rt.otm; terMod=rt.mod; terNome='retroativo';
       cardsTer=`
-        <div class="kpi"${T(`Histórico realizado de ${escAttr(pcCli)}: acessória cobrada de forma indevida/vedada (${BRLmi(rt.acessDir||0)}) + oscilação suspeita de manobra fora de padrão (${BRLmi(rt.acessOsc||0)}) + isonomia retroativa vs. o menor pagador do mês em cada rota com par, acumulado mês a mês (${BRLmi(rt.isoOtm||0)}). Recuperação histórica, não projeção anual. Resultado: ${BRLmi(rt.otm)}.`)}><div class="lbl">Retroativo — otimista</div><div class="val">${BRLmi(rt.otm)}<small>acessória indevida + isonomia (vs. menor)</small></div></div>
-        <div class="kpi"${T(`Histórico realizado de ${escAttr(pcCli)}: acessória cobrada de forma indevida/vedada (${BRLmi(rt.acessDir||0)}) + isonomia retroativa vs. a mediana do mês em cada rota com par, acumulado mês a mês (${BRLmi(rt.isoMod||0)}) — sem a oscilação suspeita (só entra no otimista). Recuperação histórica, não projeção anual. Resultado: ${BRLmi(rt.mod)}.`)}><div class="lbl">Retroativo — moderado</div><div class="val">${BRLmi(rt.mod)}<small>acessória vedada + isonomia (vs. mediana)</small></div></div>`;
+        <div class="kpi"${T(`Histórico realizado de ${escAttr(pcCli)}: acessória cobrada de forma indevida/vedada (${BRLmi(rt.acessDir||0)}) + oscilação suspeita de manobra fora de padrão (${BRLmi(rt.acessOsc||0)}) + isonomia retroativa vs. o menor pagador do mês em cada rota com par, acumulado mês a mês (${BRLmi(rt.isoOtm||0)}). Recuperação histórica, não projeção anual. Resultado: ${BRLmi(rt.otm)}.`)}><div class="lbl">Retroativo — otimista</div><div class="val">${BRLmi(rt.otm)}<small>uma vez · acessória indevida + isonomia (vs. menor)</small></div></div>
+        <div class="kpi"${T(`Histórico realizado de ${escAttr(pcCli)}: acessória cobrada de forma indevida/vedada (${BRLmi(rt.acessDir||0)}) + isonomia retroativa vs. a mediana do mês em cada rota com par, acumulado mês a mês (${BRLmi(rt.isoMod||0)}) — sem a oscilação suspeita (só entra no otimista). Recuperação histórica, não projeção anual. Resultado: ${BRLmi(rt.mod)}.`)}><div class="lbl">Retroativo — moderado</div><div class="val">${BRLmi(rt.mod)}<small>uma vez · acessória vedada + isonomia (vs. mediana)</small></div></div>`;
     }
-    const totOtm=ac.otm+iso.otm+terOtm, totMod=ac.mod+iso.mod+terMod;
-    // Consultoria (êxito) — % do total; dado interno, oculto no modo apresentação
+    // ---- ANUAL (recorrente) × UMA VEZ (recuperação histórica) — NUNCA somados ----------------
+    // Achado da auditoria (31/jul/2026): o headline somava o RETROATIVO — recuperação histórica
+    // de uma vez só, cujo próprio tooltip já dizia "Recuperação histórica, não projeção anual" —
+    // às duas parcelas ANUAIS e rotulava o resultado "/ano"; e o success fee saía desse total
+    // misturado. Um one-off e um ganho recorrente são objetos financeiros diferentes: somados,
+    // dimensionam errado toda proposta comercial (fee cobrado como se o retroativo se repetisse
+    // todo ano). Agora o headline anual contém SÓ parcelas anuais, e o retroativo aparece como
+    // figura própria, explicitamente única. O teto regulatório (LD Celulose) CONTINUA no anual —
+    // é (frete − teto) × volume/ANO, recorrente enquanto o frete estiver acima do teto.
+    const terEhUmaVez = !reg;                                  // só o retroativo é recuperação única
+    const anuOtm=ac.otm+iso.otm+(terEhUmaVez?0:terOtm), anuMod=ac.mod+iso.mod+(terEhUmaVez?0:terMod);
+    const uvOtm=terEhUmaVez?terOtm:0, uvMod=terEhUmaVez?terMod:0;
+    const temUV=uvOtm>0||uvMod>0;
+    const anuParcelas=terEhUmaVez?'acessórias + isonomia':'acessórias + isonomia + teto regulatório';
+    // Consultoria (êxito) — % de cada base, SEPARADAMENTE; dado interno, oculto no modo apresentação
+    const feeUV=s=>temUV?` Mais ${BRLmi((s?uvOtm:uvMod)*pcFee/100)} de êxito, uma única vez, sobre o retroativo (${BRLmi(s?uvOtm:uvMod)}) — cobrança separada, não recorrente.`:'';
     const consult = pcPresent ? '' : `
-        <div class="kpi hl"${T(`${pcFee}% de êxito sobre o Total otimista (${BRLmi(totOtm)}) = ${BRLmi(totOtm*pcFee/100)}. Taxa de êxito ajustável no cabeçalho do Painel do Cliente.`)}><div class="lbl">Consultoria — otimista</div><div class="val">${BRLmi(totOtm*pcFee/100)}<small>${pcFee}% de êxito · sobre o total otimista</small></div></div>
-        <div class="kpi hl"${T(`${pcFee}% de êxito sobre o Total moderado (${BRLmi(totMod)}) = ${BRLmi(totMod*pcFee/100)}. Taxa de êxito ajustável no cabeçalho do Painel do Cliente.`)}><div class="lbl">Consultoria — moderado</div><div class="val">${BRLmi(totMod*pcFee/100)}<small>${pcFee}% de êxito · sobre o total moderado</small></div></div>`;
+        <div class="kpi hl"${T(`${pcFee}% de êxito sobre o Total ANUAL otimista (${BRLmi(anuOtm)} = ${anuParcelas}) = ${BRLmi(anuOtm*pcFee/100)}/ano.${feeUV(true)} Taxa de êxito ajustável no cabeçalho do Painel do Cliente.`)}><div class="lbl">Consultoria — otimista</div><div class="val">${BRLmi(anuOtm*pcFee/100)}<small>${pcFee}% /ano sobre o anual${temUV?' · + '+BRLmi(uvOtm*pcFee/100)+' uma vez (retroativo)':''}</small></div></div>
+        <div class="kpi hl"${T(`${pcFee}% de êxito sobre o Total ANUAL moderado (${BRLmi(anuMod)} = ${anuParcelas}) = ${BRLmi(anuMod*pcFee/100)}/ano.${feeUV(false)} Taxa de êxito ajustável no cabeçalho do Painel do Cliente.`)}><div class="lbl">Consultoria — moderado</div><div class="val">${BRLmi(anuMod*pcFee/100)}<small>${pcFee}% /ano sobre o anual${temUV?' · + '+BRLmi(uvMod*pcFee/100)+' uma vez (retroativo)':''}</small></div></div>`;
+    // card próprio da recuperação única — fica ao lado dos totais anuais, nunca somado a eles
+    const cardUV = temUV ? `
+        <div class="kpi"${T(`Recuperação HISTÓRICA de ${escAttr(pcCli)}: valor já cobrado no passado e passível de restituição — pagamento ÚNICO, não se repete e por isso NÃO entra no total anual. Otimista ${BRLmi(uvOtm)} · moderado ${BRLmi(uvMod)}. O racional de cada cenário está nos cards "Retroativo" abaixo.`)} style="border-color:var(--warn)"><div class="lbl">Retroativo — recuperação única</div><div class="val">${BRLmi(uvOtm)}<small>uma vez (não /ano) · moderado ${BRLmi(uvMod)}</small></div></div>` : '';
     el.innerHTML=`<div class="panel">
       <h2>Ganhos potenciais — ${escAttr(pcCli)}</h2>
-      <div class="desc">Visão consolidada das 3 simulações do cliente: acessórias (Teto Tarifário), isonomia tarifária e ${terNome}. <b>Otimista</b> = melhor referência / maior estimativa; <b>Moderado</b> = mediana dos pares / estimativa mais conservadora.${pcPresent?'':' Os cards de <b>Consultoria</b> mostram o êxito ('+pcFee+'%) sobre cada total — ocultos no modo apresentação.'} Passe o mouse sobre qualquer card pra ver o racional do cálculo específico de ${escAttr(pcCli)}.</div>
+      <div class="desc">Visão consolidada das 3 simulações do cliente: acessórias (Teto Tarifário), isonomia tarifária e ${terNome}. <b>Otimista</b> = melhor referência / maior estimativa; <b>Moderado</b> = mediana dos pares / estimativa mais conservadora.${temUV?' <b>Atenção:</b> o <b>retroativo é recuperação histórica de uma vez só</b> — tem card próprio e <b>não</b> entra no total anual (somar um one-off a um ganho recorrente dimensiona errado a proposta).':''}${pcPresent?'':' Os cards de <b>Consultoria</b> mostram o êxito ('+pcFee+'%) sobre o total ANUAL'+(temUV?', mais uma parcela única sobre o retroativo':'')+' — ocultos no modo apresentação.'} Passe o mouse sobre qualquer card pra ver o racional do cálculo específico de ${escAttr(pcCli)}.</div>
       <div class="kpis">
-        <div class="kpi hl"${T(`Total otimista = Acessórias (${BRLmi(ac.otm)}) + Isonomia (${BRLmi(iso.otm)}) + ${escAttr(terNome)} (${BRLmi(terOtm)}), somados. Passe o mouse nos cards abaixo pra ver o racional de cada parcela.`)}><div class="lbl">Total — otimista</div><div class="val">${BRLmi(totOtm)}<small>/ano · 3 simulações somadas</small></div></div>
-        <div class="kpi hl"${T(`Total moderado = Acessórias (${BRLmi(ac.mod)}) + Isonomia (${BRLmi(iso.mod)}) + ${escAttr(terNome)} (${BRLmi(terMod)}), somados. Passe o mouse nos cards abaixo pra ver o racional de cada parcela.`)}><div class="lbl">Total — moderado</div><div class="val">${BRLmi(totMod)}<small>/ano · 3 simulações somadas</small></div></div>
+        <div class="kpi hl"${T(`Total ANUAL otimista = Acessórias (${BRLmi(ac.otm)}) + Isonomia (${BRLmi(iso.otm)})${terEhUmaVez?'':' + '+escAttr(terNome)+' ('+BRLmi(terOtm)+')'}, somados — todas parcelas RECORRENTES.${temUV?' O retroativo ('+BRLmi(uvOtm)+') é recuperação única e fica FORA deste total, em card próprio.':''} Passe o mouse nos cards abaixo pra ver o racional de cada parcela.`)}><div class="lbl">Total anual — otimista</div><div class="val">${BRLmi(anuOtm)}<small>/ano · ${anuParcelas}</small></div></div>
+        <div class="kpi hl"${T(`Total ANUAL moderado = Acessórias (${BRLmi(ac.mod)}) + Isonomia (${BRLmi(iso.mod)})${terEhUmaVez?'':' + '+escAttr(terNome)+' ('+BRLmi(terMod)+')'}, somados — todas parcelas RECORRENTES.${temUV?' O retroativo ('+BRLmi(uvMod)+') é recuperação única e fica FORA deste total, em card próprio.':''} Passe o mouse nos cards abaixo pra ver o racional de cada parcela.`)}><div class="lbl">Total anual — moderado</div><div class="val">${BRLmi(anuMod)}<small>/ano · ${anuParcelas}</small></div></div>
+        ${cardUV}
         ${consult}
         <div class="kpi"${T(acRacional(true))}><div class="lbl">Acessórias — otimista</div><div class="val">${BRLmi(ac.otm)}<small>Teto Tarifário · ${ac.n} fluxo(s)</small></div></div>
         <div class="kpi"${T(acRacional(false))}><div class="lbl">Acessórias — moderado</div><div class="val">${BRLmi(ac.mod)}<small>mediana dos pares VLI</small></div></div>
@@ -4203,16 +4560,16 @@ if(D.comparativo && D.comparativo.tarifas){
     const frete=f?f.frete:0, tarifa=f?f.tarifa_total:0, tetoBase=f?f.teto:0, volKt=volDefaultKt(f), prod=reg.produto;
     const st=pcTR[pcCli]||(pcTR[pcCli]={donor:'RMN', ref:'EFVM'});
     const segEFVM=reg.segmentos.find(s=>s.tem_teto_produto), segFCA=reg.segmentos.find(s=>!s.tem_teto_produto);
-    const tetoEFVM=tetoANTT(segEFVM.ferrovia, prod, segEFVM.km);
-    const fcaHoje=tetoANTT(segFCA.ferrovia,'DEMAIS PRODUTOS',segFCA.km);
+    const tetoEFVM=tetoANTTfer(segEFVM.ferrovia, prod, segEFVM.km);
+    const fcaHoje=tetoANTTfer(segFCA.ferrovia,'DEMAIS PRODUTOS',segFCA.km);
     const donors=Object.keys(TPARAMS).filter(fr=>fr!==segFCA.ferrovia).sort();
     const prodDonor=fr=>(TPARAMS[fr]&&TPARAMS[fr][prod])?prod:'DEMAIS PRODUTOS';
     if(!donors.includes(st.donor)) st.donor=donors.includes('RMN')?'RMN':donors[0];
-    const fcaA=tetoANTT(st.donor, prodDonor(st.donor), segFCA.km);
+    const fcaA=tetoANTTfer(st.donor, prodDonor(st.donor), segFCA.km);
     const refs=Object.keys(TPARAMS).filter(fr=>TPARAMS[fr][prod]&&TPARAMS[fr]['ADUBOS E FERTILIZANTES']).sort();
     if(!refs.includes(st.ref)) st.ref=refs.includes('EFVM')?'EFVM':refs[0];
-    const fator=tetoANTT(st.ref,prod,segFCA.km)/tetoANTT(st.ref,'ADUBOS E FERTILIZANTES',segFCA.km);
-    const fcaFerti=tetoANTT(segFCA.ferrovia,'ADUBOS E FERTILIZANTES',segFCA.km);
+    const fator=tetoANTTfer(st.ref,prod,segFCA.km)/tetoANTTfer(st.ref,'ADUBOS E FERTILIZANTES',segFCA.km);
+    const fcaFerti=tetoANTTfer(segFCA.ferrovia,'ADUBOS E FERTILIZANTES',segFCA.km);
     const fcaB=fator*fcaFerti;
     const tetoA=tetoEFVM+fcaA, tetoB=tetoEFVM+fcaB, tetoHoje=tetoEFVM+fcaHoje;
     const gan=teto=>Math.max(0,(frete-teto))*volKt*1000;
@@ -4379,7 +4736,7 @@ if(D.comparativo && D.comparativo.tarifas){
       pcSave(); pcRecalcTeto(); pcRenderGanhos(); }   // topo reflete a manobra simulada (fallback sem par)
     else if(t.dataset.pctvol){ const k=t.dataset.pctvol; (s.teto[k]=s.teto[k]||{}).volKt=parseFloat(t.value)||0;
       const f=pjDo(pcCli).find(x=>fkey(x)===k);
-      if(f) t.classList.toggle('edited', Math.round(parseFloat(t.value)||0)!==Math.round(volDefaultKt(f)));
+      if(f) t.classList.toggle('edited', Math.round(parseFloat(t.value)||0)!==Math.round(volDefaultKtGanho(f)));   // mesmo default do campo (ver volDef em tetoFluxoPanel)
       // custo estimado da manobra depende do volume ano (dimensionamento) — atualiza ao vivo, sem esperar o re-render completo
       const celCusto=document.getElementById('pcCustoEst_'+t.dataset.pcfi);
       const _pgkV=custoPremGk(f);
@@ -5194,24 +5551,41 @@ if(D.simulador && Object.keys(D.simulador).length){
   function simProds(){const f=document.getElementById('simFer').value;
     const ps=Object.keys(D.simulador[f]||{}).sort();
     document.getElementById('simProd').innerHTML=ps.map(p=>`<option>${p}</option>`).join('');}
-  function tetoANTT(f,p,dist){
+  // Renomeada de `tetoANTT` pra `tetoSimANTT` (auditoria 31/jul/2026): o nome antigo colidia, via
+  // hoisting de Annex B, com a `tetoANTT` do Painel do Cliente — as duas viravam o MESMO global e
+  // esta, por ser avaliada depois, vencia. Pior: aplicava o rate ÚNICO da faixa em que a distância
+  // TOTAL cai à distância INTEIRA, em vez da soma marginal por faixa. Isso divergia −2,6% a −13,5%
+  // e não era sequer monotônico (FCA SOJA 1000 km → R$ 192,87; 1001 km → R$ 175,03), o que por si
+  // só prova a fórmula errada. Agora só monta o objeto de exibição; a CONTA é a de
+  // tetoANTTmarginal, a mesma do Painel do Cliente (ver comentário no topo do arquivo).
+  function tetoSimANTT(f,p,dist){
     const o=D.simulador[f]?.[p]; if(!o) return null;
-    let rate=o.bandas[o.bandas.length-1][1];
-    for(const [ate,rt] of o.bandas){ if(ate===null || dist<=ate){rate=rt;break;} }
-    return {teto:o.fixo+rate*dist, fixo:o.fixo, rate, variavel:rate*dist, vig:o.vigencia, dec:o.decisao,
-            faixado:o.bandas.length>1};
+    const r=tetoANTTmarginal(o.fixo, o.bandas, dist); if(!r) return null;
+    // detalhamento faixa a faixa, pra deixar a conta marginal visível na tela (e auditável)
+    const det=[]; let prev=0;
+    for(const [ate,rate] of o.bandas){
+      const top=ate==null?dist:ate, km=Math.max(0, Math.min(dist,top)-prev);
+      if(km>0) det.push({de:prev, ate:top, km, rate, val:km*rate});
+      prev=top; if(ate!=null && dist<=ate) break;
+    }
+    return {teto:r.teto, fixo:o.fixo, rate:r.rateEfetivo, variavel:r.variavel, vig:o.vigencia,
+            dec:o.decisao, faixado:o.bandas.length>1, det};
   }
   function simRun(){
     const f=document.getElementById('simFer').value, p=document.getElementById('simProd').value;
     const dist=parseFloat(document.getElementById('simDist').value)||0;
-    const r=tetoANTT(f,p,dist);
+    const r=tetoSimANTT(f,p,dist);
     if(!r){document.getElementById('simResult').innerHTML='';return;}
+    // memória de cálculo faixa a faixa — deixa explícito que a parcela variável é CUMULATIVA
+    const memo=r.det.length>1
+      ? r.det.map(d=>`${N1(d.km)} km na faixa ${d.de}–${d.ate==null?'∞':d.ate} × ${d.rate.toFixed(4)} = R$ ${N1(d.val)}`).join(' + ')
+      : '';
     document.getElementById('simResult').innerHTML=`<div class="kpi hl" style="max-width:360px">
       <div class="lbl">Teto tarifário (frete)</div>
       <div class="val">R$ ${N1(r.teto)} <small>/t</small></div>
-      <div class="meta">fixa R$ ${N1(r.fixo)} + variável R$ ${N1(r.variavel)} &nbsp;(${r.rate.toFixed(4)} R$/t·km × ${dist} km)</div></div>`;
+      <div class="meta">fixa R$ ${N1(r.fixo)} + variável R$ ${N1(r.variavel)} &nbsp;(média efetiva ${r.rate.toFixed(4)} R$/t·km × ${dist} km)${memo?`<br><span class="muted" style="font-size:10.5px">${memo}</span>`:''}</div></div>`;
     document.getElementById('simPrem').innerHTML=`Premissas: <b>${f}</b> · ${p} · Decisão SUFER ${r.dec} · vigência ${r.vig} `
-      +`· ${r.faixado?'parcela variável por faixa de distância (regressiva)':'parcela variável única'} · última paramétrica homologada. `
+      +`· ${r.faixado?'parcela variável <b>marginal por faixa de distância</b> (cada km é remunerado ao rate da faixa em que ele cai — como faixa de IR — e não ao rate da faixa da distância total)':'parcela variável única'} · última paramétrica homologada. `
       +`O teto regula o <b>frete</b>; acessórias são negociadas à parte (ver IPOA).`;
   }
   document.getElementById('simFer').onchange=()=>{simProds();simRun();};

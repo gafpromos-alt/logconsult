@@ -78,11 +78,20 @@ def main():
         if row_detalhe:
             atuais_com_detalhe.append(row_detalhe)
 
-    # limpa APERAM nas duas tabelas (não toca nos outros clientes)
-    cur.execute("DELETE FROM projeto_fluxo_tarifas WHERE cliente=?", (CLIENTE,))
-    cur.execute("DELETE FROM projeto_acessorias_abertas WHERE cliente=?", (CLIENTE,))
+    # NAO apaga todo o cliente: a APERAM tem um portfólio mais amplo (16 rotas,
+    # incluindo CALCARIO BRITAD/DOLOMITA/PRO SIDERURGICO VIC-VMR e VMR-VAZ) já
+    # curado em projeto_fluxo_tarifas via tarifas_praticadas/ipoa_teto/
+    # fluxos_servico, que este script NAO minera e NAO deve destruir. Mesmo
+    # padrão preservador do connect_arcelormittal_precos.py: fluxo já
+    # existente -> UPDATE só dos campos tarifários (preserva teto/km/volume
+    # quando já curados); fluxo novo (rota sem portfólio prévio) -> INSERT.
+    existentes = {}
+    for fluxo, teto, km, vol in cur.execute(
+            """SELECT fluxo, teto, distancia_km, volume_ano_ktu
+               FROM projeto_fluxo_tarifas WHERE cliente=?""", (CLIENTE,)):
+        existentes[fluxo] = dict(teto=teto, distancia_km=km, volume_ano_ktu=vol)
 
-    npjf = npja = 0
+    npjf = npja = n_update = n_insert = 0
     for (it, contrato, o, d, prod, vi, vf, tr, tarifa, frete, mo, md, outros) in atuais:
         fluxo = f"{prod} {o} {d}"
         if frete is not None:
@@ -91,19 +100,40 @@ def main():
         else:
             acess = None
             ipoa = None
-        km = km_por.get((o, d, str(prod).upper()))
-        cur.execute(
-            """INSERT INTO projeto_fluxo_tarifas
-               (cliente, fluxo, tarifa_total, teto, frete, acessorias, ipoa,
-                distancia_km, volume_ano_ktu, vigencia, fonte, cobertura)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (CLIENTE, fluxo, round(tarifa, 2), round(tr, 2) if tr else None,
-             round(frete, 2) if frete is not None else None,
-             round(acess, 2) if acess is not None else None,
-             round(ipoa, 4) if ipoa is not None else None,
-             round(km, 1) if km else None, None, vf, FONTE_PJF,
-             f"reajuste a reajuste desde 2025 (item {it}, {contrato})"))
+        cobertura = f"reajuste a reajuste desde 2025 (item {it}, {contrato})"
+
+        if fluxo in existentes:
+            cur.execute(
+                """UPDATE projeto_fluxo_tarifas
+                   SET tarifa_total=?, frete=?, acessorias=?, ipoa=?,
+                       vigencia=?, fonte=?, cobertura=?
+                   WHERE cliente=? AND fluxo=?""",
+                (round(tarifa, 2), round(frete, 2) if frete is not None else None,
+                 round(acess, 2) if acess is not None else None,
+                 round(ipoa, 4) if ipoa is not None else None,
+                 vf, FONTE_PJF, cobertura, CLIENTE, fluxo))
+            n_update += 1
+        else:
+            km = km_por.get((o, d, str(prod).upper()))
+            cur.execute(
+                """INSERT INTO projeto_fluxo_tarifas
+                   (cliente, fluxo, tarifa_total, teto, frete, acessorias, ipoa,
+                    distancia_km, volume_ano_ktu, vigencia, fonte, cobertura)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (CLIENTE, fluxo, round(tarifa, 2), round(tr, 2) if tr else None,
+                 round(frete, 2) if frete is not None else None,
+                 round(acess, 2) if acess is not None else None,
+                 round(ipoa, 4) if ipoa is not None else None,
+                 round(km, 1) if km else None, None, vf, FONTE_PJF, cobertura))
+            n_insert += 1
         npjf += 1
+
+    # limpa PJA só dos fluxos que serão reescritos (não toca acessórias de
+    # outras rotas da APERAM que não foram mineradas aqui)
+    fluxos_tocados = {f"{prod} {o} {d}" for (_it, _c, o, d, prod, *_r) in atuais}
+    for fluxo in fluxos_tocados:
+        cur.execute("DELETE FROM projeto_acessorias_abertas WHERE cliente=? AND fluxo=?",
+                    (CLIENTE, fluxo))
 
     for (it, contrato, o, d, prod, vi, vf, tr, tarifa, frete, mo, md, outros) in atuais_com_detalhe:
         fluxo = f"{prod} {o} {d}"
@@ -116,8 +146,9 @@ def main():
                 npja += 1
 
     con.commit()
-    print(f"  APERAM conectada: {npjf} fluxos em projeto_fluxo_tarifas, {npja} itens de manobra em "
-          f"projeto_acessorias_abertas (fonte: preços contratuais F-LINK).")
+    print(f"  APERAM conectada: {n_update} fluxos atualizados + {n_insert} fluxos novos em "
+          f"projeto_fluxo_tarifas (demais rotas do portfólio preservadas), {npja} itens de "
+          f"manobra em projeto_acessorias_abertas (fonte: preços contratuais F-LINK).")
     con.close()
 
 

@@ -39,6 +39,14 @@ ATUALIZACAO 24/07/2026: lote adicional IMG_0550-0562.MOV (fluxos ate entao
 os frames extraidos sofrem de moire/dupla-exposicao severo e os valores de
 manobra nao puderam ser lidos com confianca suficiente - fica como
 pendencia, precisa de nova filmagem.
+
+ATUALIZACAO 30/07/2026: lote adicional IMG_0577-0586.MOV. Destes, 3 videos
+sao ARCELORMITTAL: item 8445 (FIO MAQUINA VJM->ECE, IMG_0582.MOV) e item
+16542 (FIO MAQUINA VJM->ENG, IMG_0583.MOV) resolvem 2 dos fluxos
+"pendente" (sem abertura de manobra) de projeto_fluxo_tarifas. O item 17733
+(CALCARIO BRITAD ECE->VTU, IMG_0581.MOV) ja existia neste arquivo (nao era
+pendente) - apenas uma vigencia mais recente (20/07/2026) foi acrescentada
+ao seu historico. Frames sem blur, soma validada em todas as linhas novas.
 """
 
 import os
@@ -47,6 +55,7 @@ import sqlite3
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logconsult.db")
 FONTE = "F-LINK Precos Contratuais (IMG_0457-0479.MOV) - historico de reajuste ARCELORMITTAL"
 FONTE_LOTE_550_562 = "F-LINK Precos Contratuais (videos IMG_0550-0562)"
+FONTE_LOTE_577_586 = "F-LINK Precos Contratuais (videos IMG_0577-0586)"
 
 # ---------------------------------------------------------------------------
 # Metadados de cada item ferroviario (confirmados no cabecalho de cada video)
@@ -126,6 +135,13 @@ FLUXOS = {
     7897: dict(contrato="C_2025_45", origem="VJM", origem_nome="JOAO MONLEVADE",
                destino="VPN", destino_nome="PEDRO NOLASCO",
                produto="FIO MAQUINA", videos="IMG_0557.MOV"),
+    # --- lote IMG_0577-0586.MOV (30/07/2026): resolve 2 fluxos pendentes ---
+    8445: dict(contrato="C_2025_45", origem="VJM", origem_nome="JOAO MONLEVADE",
+               destino="ECE", destino_nome="CAPITAO EDUARDO FCA",
+               produto="FIO MAQUINA", videos="IMG_0582.MOV"),
+    16542: dict(contrato="C_2025_45", origem="VJM", origem_nome="JOAO MONLEVADE",
+                destino="ENG", destino_nome="NOVA GRANJA",
+                produto="FIO MAQUINA", videos="IMG_0583.MOV"),
 }
 
 # ---------------------------------------------------------------------------
@@ -304,6 +320,10 @@ DADOS[11758] = [
 # Fluxo com 5 linhas: FRETE(EFVM), MANOBRA DESTINO(EFVM), MANOBRA
 # ORIGEM(FCA), FRETE(FCA), TRANSBORDO ORIGEM(FCA).
 DADOS[17733] = [
+    # linha acrescentada 30/07/2026 (IMG_0581.MOV, cadastro 14/07/2026): FRETE
+    # EFVM 68,71 + FRETE FCA 0,70 = 69,41; MANOBRA ORIGEM FCA 16,84; MANOBRA
+    # DESTINO EFVM 7,56; transbordo 0,00. Soma 93,81 = tarifa contrato.
+    ("2026-07-20", "2027-12-31", 146.72, 93.81, 69.41, 16.84, 7.56, 0.00),
     ("2026-03-20", "2026-03-31", 148.72, 94.50, 69.94, 16.95, 7.61, 0.00),
     ("2026-02-20", "2026-03-31", 148.72, 94.50, 58.73, 17.00, 7.64, 11.13),
     ("2026-02-20", "2026-03-31", 146.72, 94.50, 77.02, 7.45, 9.24, 0.79),  # 1o cadastro
@@ -518,6 +538,28 @@ DADOS[7897] = [
     ("2026-07-20", "2029-12-31", 78.17, 91.87, 67.92, 6.94, 17.01, 0),
 ]
 
+# --- 8445 | C_2025_45 | VJM->ECE | FIO MAQUINA | IMG_0582.MOV ---
+# RESOLVE fluxo pendente "FIO MAQUINA VJM ECE". Fluxo com 5 linhas de
+# servico: TRANSBORDO DESTINO(FCA), FRETE(EFVM), FRETE(FCA), MANOBRA
+# ORIGEM(EFVM), MANOBRA DESTINO(FCA). NOTA: schema so tem coluna
+# transbordo_origem_rs_t (sem coluna dedicada p/ "transbordo destino") -
+# reusado o mesmo padrao ja usado no item 40213 (ver nota la). Video de
+# 31,6s (0582), 4 vigencias lidas sem blur.
+DADOS[8445] = [
+    ("2026-07-20", "2029-12-31", 42.64, 69.40, 32.44, 6.94, 9.62, 20.40),
+    ("2026-06-20", "2029-12-31", 42.64, 69.37, 32.41, 6.94, 9.62, 20.40),
+    ("2026-05-20", "2029-12-31", 42.64, 69.76, 32.68, 6.99, 9.69, 20.40),
+    ("2026-04-20", "2029-12-31", 42.64, 70.05, 32.87, 7.03, 9.75, 20.40),
+]
+
+# --- 16542 | C_2025_45 | VJM->ENG | FIO MAQUINA | IMG_0583.MOV ---
+# RESOLVE fluxo pendente "FIO MAQUINA VJM ENG". Fluxo intermodal EFVM+FCA:
+# MANOBRA DESTINO(FCA) + MANOBRA ORIGEM(EFVM) + FRETE(FCA) + FRETE(EFVM).
+# Video 17,5s, so a linha mais recente (14/07/2026) lida sem blur/scroll.
+DADOS[16542] = [
+    ("2026-07-20", "2029-12-31", 45.15, 62.79, 36.27, 6.94, 19.58, 0),
+]
+
 
 # ---------------------------------------------------------------------------
 def validar(dados):
@@ -574,9 +616,15 @@ def main():
         """
     )
     LOTE_550_562_ITENS = {8114, 40213, 40468, 8370, 7897}
+    LOTE_577_586_ITENS = {8445, 16542}
     for item, linhas in DADOS.items():
         meta = FLUXOS[item]
-        fonte_item = FONTE_LOTE_550_562 if item in LOTE_550_562_ITENS else FONTE
+        if item in LOTE_577_586_ITENS:
+            fonte_item = FONTE_LOTE_577_586
+        elif item in LOTE_550_562_ITENS:
+            fonte_item = FONTE_LOTE_550_562
+        else:
+            fonte_item = FONTE
         for (vi, vf, tr, tarifa, frete, mo, md, transb) in linhas:
             cur.execute(
                 """INSERT INTO arcelormittal_precos_contratuais VALUES

@@ -323,6 +323,28 @@ _MERC_GRADE_SUFFIX_RE = re.compile(r"\s*-\s+\S+$")
 def _merc_base(m):
     return _MERC_GRADE_SUFFIX_RE.sub("", str(m)).strip() or str(m).strip()
 
+# --------- match de PRODUTO entre a base de TARIFA e a base de VOLUME (paridade com o painel) ---------
+# Porto EXATO de `pcNormFull` / `pcVolLookup` (painel_template.html): o lado JS já resolveu este
+# mesmo problema (volume por rota×PRODUTO, não por rota) e o lado Python nunca foi atualizado.
+# Convenções (todas já documentadas em detalhe no template, ver `_PROD_SINONIMOS`/`pcNormFull`):
+#   - remove o sufixo "(ITEM nnnn)" e caixa alta;
+#   - sinônimo só do 1º token: PRO→PRODUTO ("PRO SIDERURGICO" em tarifas_praticadas/ipoa_teto vs.
+#     "PRODUTO SIDERURGICO" em volume_hist) e ROCHA→FOSFATO (CMOC EYC→IFA, MOSAIC ELC→ZVF);
+#   - remove os conectores DE/DO/DA como TOKEN inteiro ("MINERIO FERRO" ≡ "MINERIO DE FERRO").
+# O match é por NOME COMPLETO exato; só cai pro fallback de PREFIXO (um nome é truncamento do
+# outro, ex. "CALCARIO BRITAD"/"CALCARIO BRITADO") quando há EXATAMENTE 1 candidato na rota —
+# nunca por 1º token (era exatamente assim que "COQUE GROSSO"/"COQUE PETROLEO"/"COQUE FINO"
+# viravam o mesmo produto). Sem match, None honesto — nunca o total da rota emprestado.
+_PROD_SINONIMOS = {"PRO": "PRODUTO", "ROCHA": "FOSFATO"}
+_ITEM_SUFIXO_RE = re.compile(r"\(ITEM\s+\S+?\)", re.I)
+def _prod_norm_full(p):
+    s = _ITEM_SUFIXO_RE.sub("", str(p if p is not None else "")).strip().upper()
+    parts = s.split()
+    if not parts:
+        return s
+    parts[0] = _PROD_SINONIMOS.get(parts[0], parts[0])
+    return " ".join(t for t in parts if t not in ("DE", "DO", "DA"))
+
 vm = q("""SELECT cliente, origem, destino, mercadoria AS produto, ano, mes,
                  SUM(realizado_ktu) ktu FROM volume_hist
           WHERE realizado_ktu > 0 GROUP BY cliente, origem, destino, mercadoria, ano, mes""")
@@ -1204,20 +1226,53 @@ def _receita(nome):
 op["receita_cli"] = op["cliente"].map(_receita)                       # receita VLI do cliente (R$ mi) — proxy de tamanho
 op["potencial_acess_rs_t"] = np.maximum(0.0, op["acess"] - IPOA_REF * op["frete"]).round(1)  # acess a reduzir p/ ref ANTT
 # REGRA: só entra na prioridade quem tem VOLUME REALIZADO nos últimos 12 meses da base
-_v12 = q("""SELECT cliente, origem, destino, ano, mes, SUM(realizado_ktu) ktu
-            FROM volume_hist WHERE realizado_ktu > 0 GROUP BY cliente, origem, destino, ano, mes""")
+#
+# achado da auditoria (31/jul/2026): a chave era (cliente, origem, destino) — SEM produto. É o
+# MESMO bug já corrigido do lado JS em jul/2026 (ver `volmes_produto`/`pcVolLookup` acima: "2 fluxos
+# na MESMA rota com mercadorias diferentes caíam na MESMA chave e recebiam o volume COMBINADO"),
+# que nunca tinha sido replicado aqui. Efeito: 118 de 127 rotas cliente×O/D com mais de um produto
+# repetiam o MESMO vol12_kt em todos eles — USIMINAS|VTU|VIC = 1.601,79 kt idêntico em COQUE
+# GROSSO / CARVAO MINERAL / COQUE PETROLEO / COQUE FINO / ANTRACITO; GERDAU|VTU|VOB = 1.317,67 kt
+# em 5 produtos. Como `receita_potencial = acess_delta × vol12_kt`, o KPI "Oport. total" somava o
+# MESMO volume 2 a 5 vezes (GERDAU|VTU|VOB sozinho respondia por R$ 160,9mi de oportunidade).
+# Fix: produto entra na chave, com o MESMO critério de match do painel (ver _prod_norm_full):
+# nome completo exato primeiro, prefixo só quando há 1 candidato único, senão None honesto.
+_v12 = q("""SELECT cliente, origem, destino, mercadoria AS produto, ano, mes, SUM(realizado_ktu) ktu
+            FROM volume_hist WHERE realizado_ktu > 0
+            GROUP BY cliente, origem, destino, mercadoria, ano, mes""")
 _v12["cliente"] = _v12["cliente"].map(canon)
+# mesma normalização em 2 passos já usada pra montar `volmes_produto` (o índice que o painel
+# consome): tira o sufixo de GRADE ("FARELO DE SOJA - SPC" → "FARELO DE SOJA") e depois normaliza
+# sinônimo/conectores — assim os dois lados do produto caem exatamente na mesma chave.
+_v12["produto"] = _v12["produto"].map(lambda m: _prod_norm_full(_merc_base(m)))
 _v12["per"] = _v12["ano"]*12 + _v12["mes"]
 # última competência com volume realizado por (cliente×O/D) — pro filtro Ano/Mês do Teto
-# olhar pra trás (histórico realizado), não pra frente (vigência do contrato).
+# olhar pra trás (histórico realizado), não pra frente (vigência do contrato). Segue agregada
+# por ROTA (sem produto) de propósito: é "a rota ainda está viva?", não "este produto ainda
+# roda" — e assim o campo mantém exatamente o mesmo valor de antes desta mudança.
 _ultima = _v12.loc[_v12.groupby(["cliente","origem","destino"])["per"].idxmax(),
                     ["cliente","origem","destino","ano","mes"]]
 _ultimamap = {(r.cliente, r.origem, r.destino): (int(r.ano), int(r.mes)) for r in _ultima.itertuples()}
 _permax = int(_v12["per"].max())
 VOL12_JANELA = f"{(_permax-11-1)//12}-{(_permax-11-1)%12+1:02d} a {(_permax-1)//12}-{(_permax-1)%12+1:02d}"
-_v12 = _v12[_v12["per"] > _permax - 12].groupby(["cliente","origem","destino"], as_index=False)["ktu"].sum()
-_v12map = {(r.cliente, r.origem, r.destino): r.ktu for r in _v12.itertuples()}
-op["vol12_kt"] = op.apply(lambda r: _v12map.get((r["cliente"], r["origem"], r["destino"])), axis=1)
+_v12 = (_v12[_v12["per"] > _permax - 12]
+        .groupby(["cliente","origem","destino","produto"], as_index=False)["ktu"].sum())
+_v12map = {(r.cliente, r.origem, r.destino, r.produto): r.ktu for r in _v12.itertuples()}
+# índice rota → {produto normalizado: ktu}, pro fallback de prefixo poder olhar os candidatos
+# daquela rota (idêntico ao `pcVolIdx`/`pcVolLookup` do painel).
+_v12idx = {}
+for (_c, _o, _d, _p), _k in _v12map.items():
+    _v12idx.setdefault((_c, _o, _d), {})[_p] = _k
+def _vol12_kt(cliente, origem, destino, produto):
+    nomes = _v12idx.get((cliente, origem, destino))
+    if not nomes:
+        return None
+    full = _prod_norm_full(produto)
+    if full in nomes:
+        return nomes[full]
+    cands = [n for n in nomes if n != full and (n.startswith(full) or full.startswith(n))]
+    return nomes[cands[0]] if len(cands) == 1 else None
+op["vol12_kt"] = op.apply(lambda r: _vol12_kt(r["cliente"], r["origem"], r["destino"], r["produto"]), axis=1)
 op["ativo12m"] = op["vol12_kt"].notna()
 op["ano_realizado"] = op.apply(lambda r: _ultimamap.get((r["cliente"], r["origem"], r["destino"]), (None, None))[0], axis=1)
 op["mes_realizado"] = op.apply(lambda r: _ultimamap.get((r["cliente"], r["origem"], r["destino"]), (None, None))[1], axis=1)
@@ -1228,7 +1283,7 @@ op["receita_ano"] = op["tarifa_total"] * op["vol12_kt"] * 1000.0   # kt -> t, ú
 # (1) benchmark é o menor pagador, não a mediana; (2) volume é o REALIZADO 12m (vol12_kt),
 # não o vmap/volume_hist anualizado que "oport_ano" (mediana) ainda usa — são bases de volume
 # diferentes por desenho (mesma ressalva já registrada na correção da receita_potencial).
-tf["vol12_kt"] = tf.apply(lambda r: _v12map.get((r["cliente"], r["origem"], r["destino"])), axis=1)
+tf["vol12_kt"] = tf.apply(lambda r: _vol12_kt(r["cliente"], r["origem"], r["destino"], r["produto"]), axis=1)
 tf["gap_min"] = np.where(tf["n_cli_rota"]>=2, tf["total"]-tf["min_pares"], np.nan)
 tf["gap_min_pct"] = np.where(tf["n_cli_rota"]>=2, (tf["total"]/tf["min_pares"]-1)*100, np.nan)
 tf["oport_min_ano"] = np.where((tf["gap_min"]>0) & tf["vol12_kt"].notna(), tf["gap_min"]*tf["vol12_kt"]*1000.0, 0.0)

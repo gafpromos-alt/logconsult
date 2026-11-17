@@ -330,7 +330,12 @@ def main():
     # MOSAIC: acrescenta 2 fluxos novos (ENXOFRE e ROCHA FOS UMIDA, item 39890/39889) a
     # partir dos preços contratuais F-LINK — preenche lacuna de abertura de manobra que não
     # existia pra esses 2 produtos. Pedido do usuário, 22/jul/2026. Só age se
-    # mosaic_precos_contratuais existir.
+    # mosaic_precos_contratuais existir. add_mosaic_precos_contratuais.main() nunca era
+    # chamado pelo orquestrador (tabela-fonte ficava stale de execução manual anterior) —
+    # corrigido em 30/jul/2026 ao acrescentar o item 41109 (resolve fluxo FERTILIZANTES
+    # IUF ZVF pendente).
+    import add_mosaic_precos_contratuais
+    add_mosaic_precos_contratuais.main()
     import connect_mosaic_precos
     connect_mosaic_precos.main()
 
@@ -381,6 +386,17 @@ def main():
     add_arcelormittal_precos_contratuais.main()
     import connect_arcelormittal_precos
     connect_arcelormittal_precos.main()
+
+    # APERAM: add_aperam_precos_contratuais.py/connect_aperam_precos.py ja existiam no repo
+    # (cliente novo, videos IMG_0480-0490 + extensao IMG_0577-0580) mas NUNCA foram
+    # chamados por este orquestrador — descoberto em 30/jul/2026 ao notar que
+    # projeto_fluxo_tarifas.to_sql(if_exists="replace") acima apaga qualquer linha da
+    # APERAM que so existisse via execucao manual anterior do connect. Roda por ultimo,
+    # mesma posicao do USIMINAS/ARCELORMITTAL.
+    import add_aperam_precos_contratuais
+    add_aperam_precos_contratuais.main()
+    import connect_aperam_precos
+    connect_aperam_precos.main()
 
     # Salvaguarda permanente (24/jul/2026, pedido do usuario apos 7 rounds da MESMA classe
     # de bug — "volume ultimos 12 meses" borrowed/fabricado por cliente-a-cliente reportado
