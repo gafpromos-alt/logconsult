@@ -108,6 +108,21 @@ const coleta = `
                          inativosComGanho, conteinerComGanho};
     });
   }
+  // relatório do cliente: gera para cada cliente e procura nome de OUTRO cliente no HTML
+  out.relatorio = {};
+  if (API && typeof relatorioClienteHtml === 'function') {
+    const nomes = [...new Set(API.PJF.map(f => API.canonPC(f.cliente)))];
+    nomes.forEach(c => {
+      try {
+        const html = relatorioClienteHtml(c).toUpperCase();
+        const norm = s => ' ' + String(s).toUpperCase().replace(/[^A-Z0-9ÀÁÂÃÉÊÍÓÔÕÚÇ]+/g, ' ') + ' ';
+        const txt = norm(html);
+        const vaz = nomes.filter(o => o !== c && o.length >= 4 && !c.includes(o) && !o.includes(c)
+          && txt.includes(norm(o)));
+        out.relatorio[c] = {ok: true, vazamentos: vaz, tamanho: html.length};
+      } catch (e) { out.relatorio[c] = {ok: false, erro: String(e.message || e)}; }
+    });
+  }
   out.ranking = (typeof rankRows !== 'undefined' && Array.isArray(rankRows))
     ? rankRows.map(r => ({cliente: r.cliente, mod: r.anual_mod, otm: r.anual_otm})) : null;
   return JSON.stringify(out);

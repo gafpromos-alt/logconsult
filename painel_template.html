@@ -445,6 +445,7 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
             <span class="chip" data-pctab="tetoreg" id="pcChipTetoReg" style="display:none">Teto Regulatório</span>
           </span>
           <span class="chip" id="pcPresentToggle" title="Oculta selos internos, ganhos de consultoria e anonimiza nomes de concorrentes — pra projetar na reunião com o cliente">☐ Modo apresentação</span>
+          <span class="chip" id="pcExportRel" title="Baixa um HTML só com os números deste cliente e referências de mercado agregadas — sem nomes de outros clientes, sem P&amp;L VLI, sem contatos. Pode ser enviado ao cliente.">⬇ Relatório do cliente</span>
         </div>
       </div>
       <div id="pcGanhosPotenciais"></div>
@@ -7749,6 +7750,106 @@ const NOVAS={};   // resumos reaproveitados pela trilha de insights (RAIL)
       if(meses>6){ const h=document.querySelector('header.head .badge');
         if(h) h.insertAdjacentHTML('beforebegin',`<span class="badge" style="background:var(--amber-bg);color:var(--amber);margin-right:8px" title="${escAttr(txt)}">Volume real com ${meses} meses de defasagem</span>`); } }
   }catch(e){ console.error('Frescor:', e); }
+})();
+
+/* ---------- 7) Entregável por cliente (pente-fino nov/2026, item 6.4 da análise) ----------
+   Gera um HTML ESTÁTICO com os números só do cliente aberto no Painel do Cliente: rotas, tarifa,
+   teto, acessórias, abertura por item, redução possível por tonelada (contra referência de mercado
+   AGREGADA — mediana/menor dos pares, sem nome de nenhum par), ganho/ano e histórico de reajustes.
+   Não leva P&L da VLI, contatos, tarifas de outros clientes nem o payload do painel. */
+function relatorioClienteHtml(cli){
+  const API=window.PC_API; if(!API) throw new Error('Painel do Cliente não montou');
+  const g=API.ganhoAcessCliente(cli);
+  const fl=API.pjDo(cli).filter(f=>!API.isRetro(f.fluxo));
+  const DB_=D.meta.data_base||{};
+  const e=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const n1=v=>v==null||!isFinite(v)?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const mi=v=>v>0?'R$ '+(v/1e6).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+' mi':'—';
+  const dt=d=>d?String(d).slice(0,10).split('-').reverse().join('/'):'—';
+  const ym=v=>v?v.split('-').reverse().join('/'):'—';
+  const hoje=new Date().toISOString().slice(0,10);
+  const linhas=fl.map(f=>{
+    const fr=API.fluxoRota(f), pf=g.porFluxo[API.fkey(f)]||{}, vol=API.fluxoVolKtGanho(f);
+    const sit=[f.rota_inativa?'sem tráfego há mais de 12 meses':'', f.unidade==='R$/contêiner'?'preço por contêiner':'',
+      f.vigencia&&f.vigencia<hoje?'contrato vencido em '+dt(f.vigencia):''].filter(Boolean).join('; ');
+    const itens=API.itensDe(f);
+    const dp=itens.filter(i=>/^DP\b|DIREITO\s+DE\s+PASSAGEM/i.test(String(i.item||''))).reduce((s,i)=>s+(i.valor_rs_t||0),0);
+    const acessSemDp=f.acessorias!=null?f.acessorias-dp:null;
+    return {f, rota:fr.origem?fr.origem+' → '+fr.destino:e(f.fluxo), produto:fr.produto, vol, pf, sit,
+      itens, dp, acessSemDp, reaj:API.reajDoFluxo(f)};
+  }).sort((a,b)=>(b.pf.mod||0)-(a.pf.mod||0));
+  const tot={mod:g.mod, otm:g.otm, vol:linhas.reduce((s,l)=>s+(l.vol||0),0)};
+  const tab=linhas.map(l=>`<tr><td>${e(l.rota)}</td><td>${e(l.produto)}</td>
+    <td class="n">${n1(l.f.tarifa_total)}</td><td class="n">${n1(l.f.teto)}</td>
+    <td class="n">${l.f.teto>0&&l.f.frete?Math.round(l.f.frete/l.f.teto*100)+'%':'—'}</td>
+    <td class="n">${n1(l.f.frete)}</td><td class="n">${n1(l.acessSemDp)}</td><td class="n">${l.dp>0?n1(l.dp):'—'}</td>
+    <td class="n">${l.f.frete>0&&l.acessSemDp!=null?Math.round(l.acessSemDp/l.f.frete*100)+'%':'—'}</td>
+    <td class="n">${l.vol>0?n1(l.vol):'—'}</td>
+    <td class="n">${l.pf.modRsT>0?n1(l.pf.modRsT):'—'}</td><td class="n">${l.pf.otmRsT>0?n1(l.pf.otmRsT):'—'}</td>
+    <td class="n"><b>${mi(l.pf.mod)}</b></td><td class="s">${e(l.sit)}</td></tr>`).join('');
+  const abert=linhas.filter(l=>l.itens.length).map(l=>`<tr><td>${e(l.rota)} · ${e(l.produto)}</td><td>${
+    l.itens.map(i=>`${e(i.item)}: R$ ${n1(i.valor_rs_t)}`).join('<br>')}</td></tr>`).join('');
+  const reaj=linhas.filter(l=>l.reaj.length>=2).map(l=>{
+    const ok=l.reaj.filter(r=>!r.suspeita).sort((a,b)=>a.vigencia_inicial.localeCompare(b.vigencia_inicial));
+    if(ok.length<2) return '';
+    const a=ok[0], b=ok[ok.length-1], man=r=>(r.manobra_origem_rs_t||0)+(r.manobra_destino_rs_t||0);
+    const p=(x,y)=>x>0?((y/x-1)*100).toFixed(1).replace('.',',')+'%':'—';
+    return `<tr><td>${e(l.rota)} · ${e(l.produto)}</td><td>${dt(a.vigencia_inicial)} → ${dt(b.vigencia_inicial)}</td>
+      <td class="n">${n1(a.tarifa_contrato)} → ${n1(b.tarifa_contrato)}</td><td class="n">${p(a.tarifa_contrato,b.tarifa_contrato)}</td>
+      <td class="n">${p(a.frete_rs_t,b.frete_rs_t)}</td><td class="n">${p(man(a),man(b))}</td><td class="n">${p(a.valor_tr_antt,b.valor_tr_antt)}</td></tr>`;
+  }).join('');
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${e(cli)} · Diagnóstico tarifário ferroviário</title>
+<style>
+:root{--ink:#1d2421;--mut:#5d6964;--line:#d9dfdc;--bg:#fff;--soft:#f3f6f4;--acc:#1f6f52}
+@media (prefers-color-scheme:dark){:root{--ink:#e6ece9;--mut:#a3b0aa;--line:#33403b;--bg:#141917;--soft:#1c2320;--acc:#6fcfa4}}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:26px;margin:0 0 4px}h2{font-size:17px;margin:36px 0 8px}
+.sub,.nota{color:var(--mut)}.nota{font-size:12px}
+.cards{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:12px 16px;min-width:180px;background:var(--soft)}
+.card b{display:block;font-size:22px;color:var(--acc)}
+.tw{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{font-weight:600;color:var(--mut);white-space:nowrap}.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.s{color:var(--mut);font-size:11.5px}
+@media print{main{padding:0}.card{background:none}}
+</style></head><body><main>
+<div class="sub">LogConsult · diagnóstico confidencial preparado para o cliente</div>
+<h1>${e(cli)} — tarifas ferroviárias e serviços acessórios</h1>
+<div class="sub">Emitido em ${dt(hoje)} · volume realizado até ${ym(DB_.volume_ate)} · preços contratuais até ${dt(DB_.precos_contratuais_ate)}</div>
+<div class="cards">
+  <div class="card">Rotas analisadas<b>${linhas.length}</b></div>
+  <div class="card">Volume últimos 12 meses<b>${Math.round(tot.vol).toLocaleString('pt-BR')} kt</b></div>
+  <div class="card">Redução possível — moderada<b>${mi(tot.mod)}/ano</b></div>
+  <div class="card">Redução possível — otimista<b>${mi(tot.otm)}/ano</b></div>
+</div>
+<p class="nota">Valores em R$/t. <b>Moderada</b> = acessória levada à mediana praticada por outros clientes no mesmo serviço, estação e família de produto; <b>otimista</b> = ao menor nível praticado por outro cliente. Referências de mercado são agregadas — nenhum outro cliente é identificado. Direito de passagem não é tratado como acessória (repasse entre concessionárias, Res. ANTT 5.943/2021). Teto ANTT conforme Res. 6.031/2023.</p>
+<h2>Situação por rota</h2>
+<div class="tw"><table><thead><tr><th>Rota</th><th>Produto</th><th class="n">Tarifa</th><th class="n">Teto ANTT</th><th class="n">Frete/teto</th><th class="n">Frete</th><th class="n">Acessórias</th><th class="n">Dir. passagem</th><th class="n">IPOA</th><th class="n">Vol 12m kt</th><th class="n">Redução mod. R$/t</th><th class="n">Redução otim. R$/t</th><th class="n">Ganho mod./ano</th><th>Observação</th></tr></thead><tbody>${tab}</tbody></table></div>
+${abert?`<h2>Abertura das acessórias cobradas</h2><div class="tw"><table><thead><tr><th>Rota</th><th>Itens (R$/t)</th></tr></thead><tbody>${abert}</tbody></table></div>`:''}
+${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2><div class="tw"><table><thead><tr><th>Rota</th><th>Período</th><th class="n">Tarifa</th><th class="n">Δ tarifa</th><th class="n">Δ frete</th><th class="n">Δ manobra</th><th class="n">Δ teto ANTT</th></tr></thead><tbody>${reaj}</tbody></table></div>
+<p class="nota">Quando frete e manobra se movem em sentidos opostos com a tarifa total estável, a divisão entre a parcela regulada (frete, sujeita ao teto) e a acessória foi redefinida sem mudança no valor pago.</p>`:''}
+<p class="nota" style="margin-top:32px">Documento gerado a partir do LogConsult OS. Uso restrito ao destinatário.</p>
+</main></body></html>`;
+}
+(function(){
+  try{
+    const btn=document.getElementById('pcExportRel'); if(!btn) return;
+    btn.onclick=()=>{
+      try{
+        const sel=document.getElementById('pcCliPriorSel'), sel2=document.getElementById('pcCliTodosSel');
+        const cli=(sel&&sel.value)||(sel2&&sel2.value); if(!cli) return alert('Escolha um cliente primeiro.');
+        if(!window.PC_API.pjDo(cli).length) return alert(cli+' ainda não tem fluxos curados — não há o que exportar.');
+        const html=relatorioClienteHtml(cli);
+        const a=document.createElement('a');
+        a.href=URL.createObjectURL(new Blob([html],{type:'text/html'}));
+        a.download='LogConsult_'+cli.replace(/[^A-Za-z0-9]+/g,'_')+'_'+new Date().toISOString().slice(0,10)+'.html';
+        document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500);
+      }catch(e){ alert('Não consegui gerar o relatório: '+e.message); }
+    };
+  }catch(e){ console.error('Relatório do cliente:', e); }
 })();
 
 const RAIL_TITLES={

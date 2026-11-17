@@ -147,6 +147,11 @@ def testes_painel():
         ok(v["naoFinitos"] == 0, f"{c}: {v['naoFinitos']} fluxo(s) com ganho não numérico")
         ok(v["inativosComGanho"] == 0, f"{c}: {v['inativosComGanho']} rota(s) inativa(s) com ganho/ano")
         ok(v["conteinerComGanho"] == 0, f"{c}: fluxo em R$/contêiner multiplicado por tonelada")
+    rel = d.get("relatorio") or {}
+    ok(len(rel) >= 20, "relatório do cliente não foi gerado")
+    for c, v in rel.items():
+        ok(v.get("ok"), f"relatório de {c} falhou: {v.get('erro')}")
+        ok(not v.get("vazamentos"), f"relatório de {c} cita outro cliente: {v.get('vazamentos')}")
     rk = d.get("ranking")
     if ok(rk is not None, "ranking de captura não montou"):
         for r_ in rk:
