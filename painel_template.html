@@ -318,6 +318,7 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
       <button data-tab="novonegocio">Novo Negócio · Manobras</button>
       <button data-tab="acessorias">Acessórias e Teto</button>
       <button data-tab="comparativo">Comparativo de Tarifas</button>
+      <button data-tab="ficha">Ficha de Fluxo 2026</button>
       <button data-tab="reajustes">Reajustes e Vencimentos</button>
       <button data-tab="portoservicos">Porto e Serviços Acessórios</button>
       <button data-tab="regulatorio">Regulatório</button>
@@ -1272,6 +1273,39 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
   </section>
 
   <!-- ============ CONTRATOS ============ -->
+  <!-- ============ FICHA DE FLUXO 2026 (base consolidada VLI, nov/2026) ============ -->
+  <section id="ficha">
+    <div class="kpis" id="fiKpis" style="margin-bottom:12px"></div>
+    <div class="panel">
+      <h2>Itens da Ficha de Fluxo 2026 <span class="h-hint" id="fiRef"></span></h2>
+      <div class="desc">Uma linha por item ferroviário com preço no mês de referência. <b>% do teto</b> = (frete + direito de passagem) ÷ teto ANTT. <b>IPOA</b> = acessórias sem DP ÷ (frete + DP). Volume = últimos 12 meses reais da rota (mesma função do Painel do Cliente), dividido entre os itens do mesmo cliente na mesma rota e produto. <b>Excesso IPOA</b> = acessória acima de 24,8% da base do teto, vezes o volume. <b>Acima da mediana</b> = manobra e transbordo acima da mediana dos outros clientes no mesmo serviço, estação e família de produto, vezes o volume. Clique numa linha para ver o item mês a mês.</div>
+      <div class="controls">
+        <input type="search" id="fiSearch" placeholder="Buscar cliente / produto / estação / item…" style="min-width:240px">
+        <span class="chip" data-fif="ipoa">IPOA acima de 24,8%</span>
+        <span class="chip" data-fif="teto">≥ 90% do teto</span>
+        <span class="chip" data-fif="recl">Com troca frete↔acessória</span>
+        <span class="chip" data-fif="acomp">Manobra acompanha o frete</span>
+        <span class="chip" data-fif="vol">Só com volume</span>
+        <span class="chip" data-fif="antigos">Incluir itens sem preço recente</span>
+        <span class="muted" id="fiCount"></span>
+      </div>
+      <div class="tbl-wrap freeze-cli" style="max-height:620px"><table id="tFicha"></table></div>
+      <div id="fiSerie" style="margin-top:12px"></div>
+    </div>
+    <div class="panel">
+      <h2>Trocas entre frete e acessória, mês a mês</h2>
+      <div class="desc">Meses seguidos em que frete e acessória andaram em sentidos opostos (cada um pelo menos R$ 1/t) com a tarifa total variando menos de 1%. O cliente paga o mesmo; muda o quanto fica na parcela regulada pelo teto.</div>
+      <div class="controls"><input type="search" id="frSearch" placeholder="Buscar cliente / produto…"><span class="muted" id="frCount"></span></div>
+      <div class="tbl-wrap freeze-cli" style="max-height:480px"><table id="tFichaRecl"></table></div>
+    </div>
+    <div class="panel">
+      <h2>Isonomia de manobra e transbordo por estação</h2>
+      <div class="desc">Mesmo serviço, mesma estação e mesma família de produto, com pelo menos 3 clientes. Valor por cliente = mediana dos itens dele no mês de referência. Valores abaixo de R$ 0,50/t são simbólicos e ficam fora.</div>
+      <div class="controls"><input type="search" id="fsSearch" placeholder="Buscar estação / serviço…"><span class="muted" id="fsCount"></span></div>
+      <div class="tbl-wrap" style="max-height:480px"><table id="tFichaIso"></table></div>
+    </div>
+  </section>
+
   <!-- ============ REAJUSTES E VENCIMENTOS (pente-fino nov/2026) ============ -->
   <section id="reajustes">
     <div class="kpis" id="rjKpis" style="margin-bottom:12px"></div>
@@ -2541,7 +2575,11 @@ if(D.comparativo && D.comparativo.tarifas){
     if(!estacao||!servico) return null;
     const porOrigem=/ORIGEM/.test(servico);
     const alvo=excluirCli!=null?canonPC(excluirCli):null;
+    // valor abaixo de R$ 0,50/t é cobrança simbólica (ex.: R$ 0,01 de quem opera o próprio terminal,
+    // APERAM em VMR, RAIZEN em PPN) e não é preço de mercado: virava "menor par" e o cenário otimista
+    // tomava a manobra inteira como ganho (nov/2026, ficha 2026 trouxe mais casos assim)
     const rows=SIMH.filter(r=>r.servicos===servico&&(porOrigem?r.origem===estacao:r.destino===estacao)
+      &&(r.tarifa>=0.5)
       &&(!produto||mesmaFamilia(produto, r.produto))
       &&(alvo==null||canonPC(r.cliente)!==alvo));
     if(!rows.length) return null;
@@ -2916,6 +2954,10 @@ if(D.comparativo && D.comparativo.tarifas){
   // aparece como mercadoria em volume_hist pra NENHUM cliente da base (checado), então o sinônimo
   // é seguro (não pode colidir com um "ROCHA" físico diferente de fosfato).
   const _PROD_SINONIMOS={PRO:'PRODUTO', ROCHA:'FOSFATO'};
+  // nome inteiro equivalente (nov/2026, ficha 2026): a tarifa grava "COQUE PETROLEO" e o volume
+  // grava "COQUE VERDE DE PETROLEO" para o mesmo produto (CIPLAN e IMI em VTU→EPM). Mesmo mapa em
+  // build_painel.py (_PROD_ALIAS_FULL) e audit_volumes.py.
+  const _PROD_ALIAS_FULL={'COQUE VERDE PETROLEO':'COQUE PETROLEO'};
   // REVERTIDO (23/jul/2026, achado do usuário: "GERDAU volumes... últimos 12 meses vários
   // volumes repetidos e que não fazem sentido") — a "família carvão/coque/antracito" abaixo
   // tinha sido adicionada nesta mesma sessão pra dimensionar a MANOBRA (custo/investimento
@@ -2962,7 +3004,8 @@ if(D.comparativo && D.comparativo.tarifas){
     const s=String(p||'').replace(/\(ITEM\s+\S+?\)/gi,'').trim().toUpperCase();
     const parts=s.split(/\s+/); if(!parts.length||!parts[0]) return s;
     parts[0]=_PROD_SINONIMOS[parts[0]]||parts[0];
-    return parts.filter(t=>t!=='DE'&&t!=='DO'&&t!=='DA').join(' ');
+    const j=parts.filter(t=>t!=='DE'&&t!=='DO'&&t!=='DA').join(' ');
+    return _PROD_ALIAS_FULL[j]||j;
   };
   // pente fino (24/jul/2026, achado do usuário: "quando filtro ultimos 12 meses desconfigura o
   // preco da acessorias"): 3 pontos deste painel (histórico detalhado do fluxo, resumo "Teto e
@@ -3090,7 +3133,12 @@ if(D.comparativo && D.comparativo.tarifas){
     const idx=pcVolIdx(), kRota=cli+'|'+o+'|'+d, nomes=idx[kRota]; if(!nomes) return null;
     const full=pcNormFull(produto);
     if(nomes[full]) return nomes[full];
-    const cands=Object.keys(nomes).filter(n=>n!==full&&(n.startsWith(full)||full.startsWith(n)));
+    let cands=Object.keys(nomes).filter(n=>n!==full&&(n.startsWith(full)||full.startsWith(n)));
+    // desempate (nov/2026): com mais de um candidato, fica só quem tem volume na janela global
+    // de 12 meses. Ex.: VALE ENG→VTU "CALCARIO BRITAD" casava com "CALCARIO" e com "CAL" (série
+    // morta desde 2015) e ficava sem volume. Nunca junta produtos: continua exigindo 1 só.
+    if(cands.length>1){ const g=pcAncoraGlobal();
+      cands=cands.filter(n=>Object.keys(nomes[n]).some(a=>Object.keys(nomes[n][a]).some(m=>Number(a)*12+Number(m)>g-12))); }
     return cands.length===1?nomes[cands[0]]:null;
   };
   // soma os últimos 12 meses REAIS de um índice ano->mês->valor, ancorado no mês mais recente
@@ -3157,18 +3205,21 @@ if(D.comparativo && D.comparativo.tarifas){
       // "(ITEM n)" nem nome sem rota — usa o parser único fluxoRota)
       const linhas=atuais.map(f=>{
         const r=fluxoRota(f);
-        const pctTeto=f.teto>0?f.frete/f.teto:null;              // teto regula só o frete
+        // regra do sócio (19/nov/2026): teto contra frete + DP; IPOA = acessórias sem DP ÷ (frete + DP)
+        const dpF=dpDe(f), baseF=f.frete+dpF, acessF=f.acessorias-dpF;
+        const pctTeto=f.teto>0?baseF/f.teto:null;
         const ipoaAlvo=ipoaAlvoRota(r.origem,r.destino);          // média REAL da ferrovia do fluxo, não 24,8% fixo
-        const acimaIpoa=f.frete>0&&(f.acessorias/f.frete)>ipoaAlvo*1.2;
-        const excFrete=f.frete-f.teto;
+        const ipoaF=baseF>0?acessF/baseF:null;
+        const acimaIpoa=ipoaF!=null&&ipoaF>ipoaAlvo*1.2;
+        const excFrete=baseF-f.teto;
         const volKt=f.volume_ano_ktu?f.volume_ano_ktu/1000:null;
-        const ganhoIpoaRsT=Math.max(0,f.acessorias-ipoaAlvo*f.frete);
+        const ganhoIpoaRsT=Math.max(0,acessF-ipoaAlvo*baseF);
         const ganhoIpoaAno=volKt?ganhoIpoaRsT*volKt*1000:null;
-        return {r, f, pctTeto, acimaIpoa, excFrete, ipoaAlvo, volKt, ganhoIpoaRsT, ganhoIpoaAno};
+        return {r, f, pctTeto, acimaIpoa, excFrete, ipoaAlvo, volKt, ganhoIpoaRsT, ganhoIpoaAno, ipoaF, acessF};
       }).sort((a,b)=>(b.ganhoIpoaAno||0)-(a.ganhoIpoaAno||0));
       const nSemVol=linhas.filter(l=>!l.volKt).length;
       const totGanhoIpoa=linhas.reduce((x,l)=>x+(l.ganhoIpoaAno||0),0);
-      const trs=linhas.map(({r,f,pctTeto,acimaIpoa,excFrete,ipoaAlvo,ganhoIpoaAno})=>`<tr${acimaIpoa?' style="background:var(--amber-bg)"':''}>
+      const trs=linhas.map(({r,f,pctTeto,acimaIpoa,excFrete,ipoaAlvo,ganhoIpoaAno,ipoaF})=>`<tr${acimaIpoa?' style="background:var(--amber-bg)"':''}>
         <td><span class="muted">${escAttr(r.produto)}</span></td>
         <td class="mono">${escAttr(r.origem+'→'+r.destino)}</td>
         <td class="num mono">R$ ${N1(f.tarifa_total)}</td>
@@ -3176,7 +3227,7 @@ if(D.comparativo && D.comparativo.tarifas){
         <td class="num">${pctTeto!=null?`<b style="color:${pctTeto>=0.98?'var(--bad)':pctTeto>=0.85?'var(--warn)':'inherit'}">${Math.round(pctTeto*100)}%</b>`:'—'}${excFrete>0.05?` <span class="pill" style="color:var(--bad);background:var(--danger-bg);font-size:9px">›teto</span>`:''}</td>
         <td class="num mono">R$ ${N1(f.frete)}</td>
         <td class="num mono"><b style="${acimaIpoa?'color:var(--warn)':''}">R$ ${N1(f.acessorias)}</b></td>
-        <td class="num">${f.frete>0?`<b style="${acimaIpoa?'color:var(--warn)':''}">${Math.round(f.acessorias/f.frete*100)}%</b>`:'—'}</td>
+        <td class="num">${ipoaF!=null?`<b style="${acimaIpoa?'color:var(--warn)':''}">${Math.round(ipoaF*100)}%</b>`:'—'}</td>
         <td class="num muted" title="média real da ferrovia deste fluxo">${Math.round(ipoaAlvo*100)}%</td>
         <td class="num">${ganhoIpoaAno!=null?`<b style="color:var(--green-text)">${BRL0(ganhoIpoaAno)}</b>`:'<span class="muted" title="sem volume_ano_ktu cadastrado pra este fluxo — não entra no total">— sem volume</span>'}</td>
       </tr>`).join('');
@@ -3190,7 +3241,7 @@ if(D.comparativo && D.comparativo.tarifas){
         <div class="tbl-wrap" style="max-height:520px"><table>
           <thead><tr><th>Produto</th><th>Rota</th><th class="num">Tarifa cheia R$/t</th><th class="num">Teto ANTT R$/t</th><th class="num">% do teto</th><th class="num">Frete R$/t</th><th class="num">Acessórias R$/t</th><th class="num">IPOA</th><th class="num" title="IPOA médio real da ferrovia deste fluxo (FCA/FNS/EFVM/EFC) — não é o gatilho ANTT de 24,8%, é a média observada">Alvo (malha)</th><th class="num" title="(Acessórias − Alvo×Frete) × volume do fluxo, quando há volume cadastrado">Ganho por IPOA/ano</th></tr></thead>
           <tbody>${trs}</tbody></table></div>
-        <div class="note fine">% do teto = frete ÷ teto ANTT (o teto regula só o frete, não a tarifa cheia). IPOA = acessórias ÷ frete; o gatilho regulatório da ANTT (Res. 6.031/2023 art.15) é 24,8% fixo, mas o <b>Alvo (malha)</b> usado pro Ganho por IPOA é a <b>média real observada na ferrovia</b> desse fluxo — mais realista como referência de mercado (pedido do usuário, 21/jul/2026). Fonte: base de tarifas praticadas (ipoa_teto) + ipoa_geral (média por ferrovia). Volume/vigência e a abertura de manobra por fluxo entram com a planilha de projeto do cliente — quando chegar, esse ganho por IPOA dá lugar aos deltas simuláveis por item, como na Selecta.</div>
+        <div class="note fine">% do teto = (frete + direito de passagem) ÷ teto ANTT; a tarifa cheia não entra. IPOA = acessórias sem DP ÷ (frete + DP), regra do sócio de 19/nov/2026; o gatilho regulatório da ANTT (Res. 6.031/2023 art.15) é 24,8% fixo, mas o <b>Alvo (malha)</b> usado pro Ganho por IPOA é a <b>média real observada na ferrovia</b> desse fluxo — mais realista como referência de mercado (pedido do usuário, 21/jul/2026). Fonte: base de tarifas praticadas (ipoa_teto) + ipoa_geral (média por ferrovia). Volume/vigência e a abertura de manobra por fluxo entram com a planilha de projeto do cliente — quando chegar, esse ganho por IPOA dá lugar aos deltas simuláveis por item, como na Selecta.</div>
       </div>`;
       return;
     }
@@ -3212,12 +3263,13 @@ if(D.comparativo && D.comparativo.tarifas){
       // "excesso sobre o teto" só existe de fato quando o FRETE sozinho estoura o teto;
       // normalmente o frete fica abaixo (a concessionária evita essa violação clara) e o
       // ganho real mora nas acessórias, que não têm teto regulatório.
-      const folgaFrete=f.teto-f.frete, excessoFrete=f.frete-f.teto;
-      // DP fora de acessórias (linha própria) — ver ehDP/dpDe. IPOA e "acessórias" passam a ser
-      // SEM DP (DP não é operação acessória; é repasse interconcessionárias ~ frete).
+      // DP fora de acessórias (linha própria) — ver ehDP/dpDe. Regra do sócio (19/nov/2026): a base
+      // do teto é frete + DP, e o IPOA é acessórias sem DP ÷ (frete + DP).
       const dpFluxo=dpDe(f);
+      const baseTeto=f.frete+dpFluxo;
+      const folgaFrete=f.teto-baseTeto, excessoFrete=baseTeto-f.teto;
       const acessSemDP=f.acessorias-dpFluxo;
-      const ipoaSemDP=f.frete>0?acessSemDP/f.frete:0;
+      const ipoaSemDP=baseTeto>0?acessSemDP/baseTeto:0;
       // alvo de IPOA = média REAL da ferrovia do fluxo, não o gatilho fixo de 24,8% (achado da
       // auditoria de especialista, 21/jul/2026: "IPOA só vale por ferrovia" — ver ipoaAlvoRota).
       const ipoaAlvoFluxo=fr&&fr.origem?ipoaAlvoRota(fr.origem,fr.destino):IPOA_REF;
@@ -3247,7 +3299,7 @@ if(D.comparativo && D.comparativo.tarifas){
         .filter(d=>d.ref!=null&&Math.abs(d.atual-d.ref)>0.005)
         .sort((x,y)=>(y.atual-y.ref)-(x.atual-x.ref));
       const dTop=deltas[0];
-      let racional=`<b>Por que existe ganho aqui:</b> o frete ferroviário (R$ ${N1(f.frete)}/t) está `
+      let racional=`<b>Por que existe ganho aqui:</b> o frete${dpFluxo>0.005?' mais o direito de passagem':''} (R$ ${N1(baseTeto)}/t, base do teto) está `
         +(f.teto==null?`sem teto ANTT calculado pra esta rota na base — a leitura fica pelas acessórias.`
           :folgaFrete>0?`<b>R$ ${N1(folgaFrete)}/t abaixo</b> do teto ANTT (R$ ${N1(f.teto)}/t) — o frete não é o problema.`
                       :`R$ ${N1(-folgaFrete)}/t ACIMA do teto ANTT (R$ ${N1(f.teto)}/t).`)
@@ -3623,9 +3675,10 @@ if(D.comparativo && D.comparativo.tarifas){
         const manOri=manOri0*escala, manDes=manDes0*escala, manOut=manOut0*escala;
         const simOri=simOri0*escala, simDes=simDes0*escala, simOut=simOut0*escala;
         const manob=manOri+manDes+manOut;
-        const pctTeto=f.teto>0?freteExib/f.teto:null;
+        const baseExib=freteExib+dp0;   // base do teto e do IPOA = frete + DP (regra de 19/nov/2026)
+        const pctTeto=f.teto>0?baseExib/f.teto:null;
         const ipoaAlvoR=r&&r.origem?ipoaAlvoRota(r.origem,r.destino):IPOA_REF;
-        const ipoaHi=freteExib>0&&(acessExib/freteExib)>ipoaAlvoR*1.2;
+        const ipoaHi=baseExib>0&&(acessExib/baseExib)>ipoaAlvoR*1.2;
         return {f,r,manOri,manDes,manOut,dp0,tb0,simOri,simDes,simOut,manob,pctTeto,ipoaHi,hp,freteExib,acessExib,tarifaExib,escala};
       });
       // ordenação por título de coluna (clique) — ver pcTetoSort. getters batem 1:1 com as
@@ -3637,7 +3690,7 @@ if(D.comparativo && D.comparativo.tarifas){
         frete:l=>l.freteExib, acess:l=>l.acessExib, dp:l=>l.dp0, tb:l=>l.tb0,
         ao:l=>l.manOri, ad:l=>l.manDes, aot:l=>l.manOut,
         aos:l=>l.simOri, ads:l=>l.simDes, aots:l=>l.simOut,
-        ipoa:l=>l.freteExib>0?l.acessExib/l.freteExib:null,
+        ipoa:l=>(l.freteExib+l.dp0)>0?l.acessExib/(l.freteExib+l.dp0):null,
         vol:l=>volDe(l.f).v, ganho:l=>ganhoDe(l.f,l.escala).val,
       };
       const tetoColStr={rota:1, produto:1};
@@ -3686,7 +3739,7 @@ if(D.comparativo && D.comparativo.tarifas){
         <td class="num mono">${hp&&Math.abs(escala-1)>0.005?`<span style="color:var(--green-text)" title="AD proporcional ao período — sem abertura por lado na base ainda (aguardando dado real)">${cel(manDes)}</span>`:cel(manDes)}</td>${temOut?`<td class="num mono">${cel(manOut)}</td>`:''}
         <td class="num mono">${celS(simOri,manOri)}</td>
         <td class="num mono">${celS(simDes,manDes)}</td>${temOut?`<td class="num mono">${celS(simOut,manOut)}</td>`:''}
-        <td class="num">${freteExib>0?Math.round(acessExib/freteExib*100)+'%':'—'}</td>
+        <td class="num">${(freteExib+dp0)>0?Math.round(acessExib/(freteExib+dp0)*100)+'%':'—'}</td>
         <td class="num${(sRes.teto[fkey(f)]&&sRes.teto[fkey(f)].volKt!=null)?' edited':''}" title="${perAtivo?'volume realizado no período selecionado (sem dado mensal na base = 0)':'volume anual usado no ganho projetado — últimos 12 meses realizados (editável dentro da rota)'}">${(x=>x.semDado?'—':N1(x.v))(volDe(f))}</td>
         <td class="num" title="${(g=>'Δ R$ '+N1(g.rsT)+'/t × '+N1(volDe(f).v)+' kt')(ganhoDe(f,escala))}"><b style="color:var(--green-text)">${(g=>g.val>0.005?BRL0(g.val):'—')(ganhoDe(f,escala))}</b></td></tr>`).join('');
       return `<div class="panel">
@@ -4083,8 +4136,8 @@ if(D.comparativo && D.comparativo.tarifas){
       if(el) kpiRow('pcTetoRes_'+fi,[
         ['Manobras simuladas','R$ '+N1(sim)+'/t','itens abertos — eram R$ '+N1(aberturaTot)+'/t',''],
         ['Ganho do cenário','R$ '+N1(Math.max(0,ganhoRsT))+'/t','× '+Math.round(volKt)+' kt/ano',''],
-        ['Tarifa simulada','R$ '+N1(tarifaSim)+'/t', tarifaSim>f.teto?'ainda R$ '+N1(tarifaSim-f.teto)+'/t acima do teto':'DENTRO do teto ANTT',''],
-        ['IPOA simulado', f.frete>0?Math.round(acessSim/f.frete*100)+'%':'—','sem DP · ref. '+ipoaRefLbl,''],
+        ['Tarifa simulada','R$ '+N1(tarifaSim)+'/t', (f.frete+dpDe(f))>f.teto?'frete + DP R$ '+N1(f.frete+dpDe(f)-f.teto)+'/t acima do teto':'frete + DP dentro do teto ANTT',''],
+        ['IPOA simulado', (f.frete+dpDe(f))>0?Math.round(acessSim/(f.frete+dpDe(f))*100)+'%':'—','sem DP, sobre frete + DP · ref. '+ipoaRefLbl,''],
         ['Ganho anual do cenário', BRLmi(Math.max(0,ganhoRsT)*volKt*1000),'/ano neste fluxo',''],
         // ganhos de consultoria (success fee) — só fora do modo apresentação (dado interno, não vai pro cliente)
         ...(pcPresent?[
@@ -4501,7 +4554,8 @@ if(D.comparativo && D.comparativo.tarifas){
     window.PC_API = {PJF, pjDo, canonPC, fkey, isRetro, fluxoVolKt, itensDe, fluxoRota,
       // pente-fino nov/2026: abas Reajustes/Vencimentos e Pendências de captura usam as MESMAS
       // funções de ganho e volume do card do cliente (um número, uma função)
-      ganhoAcessCliente, fluxoVolKtGanho, seloRota, reajDoFluxo};
+      ganhoAcessCliente, fluxoVolKtGanho, seloRota, reajDoFluxo,
+      volKtRota:(cli,o,d,prod)=>{ const v=pcUlt12Sum(pcVolLookup(cli,o,d,prod)); return v!=null?v/1000:0; }};
   }
   _pcExposeAPI();
 
@@ -5032,7 +5086,7 @@ if(D.comparativo && D.comparativo.tarifas){
       else{
         // alvo de soma da abertura: IPOA 24,8% => tira do fluxo o excesso sobre a ref; peer => acess_sugerida
         let alvoTot=abertTot;
-        if(modo==='ipoa') alvoTot=Math.max(0, abertTot-(f.acessorias-IPOA_REF*f.frete));
+        if(modo==='ipoa'){ const dpI=dpDe(f); alvoTot=Math.max(0, abertTot-((f.acessorias-dpI)-IPOA_REF*(f.frete+dpI))); }
         if(modo==='peer'){ const tt=ttFluxo(f); if(tt&&tt.acess_sugerida!=null) alvoTot=Math.max(0, abertTot-(f.acessorias-tt.acess_sugerida)); }
         const fator=abertTot>0?alvoTot/abertTot:0;
         itensA.forEach(a=>{ s.teto[k].items[a.item]=Math.round(a.valor_rs_t*fator*100)/100; });
@@ -7763,10 +7817,10 @@ function relatorioClienteHtml(cli){
   const fl=API.pjDo(cli).filter(f=>!API.isRetro(f.fluxo));
   const DB_=D.meta.data_base||{};
   const e=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
-  const n1=v=>v==null||!isFinite(v)?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const mi=v=>v>0?'R$ '+(v/1e6).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+' mi':'—';
-  const dt=d=>d?String(d).slice(0,10).split('-').reverse().join('/'):'—';
-  const ym=v=>v?v.split('-').reverse().join('/'):'—';
+  const n1=v=>v==null||!isFinite(v)?'n/d':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const mi=v=>v>0?'R$ '+(v/1e6).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+' mi':'n/d';
+  const dt=d=>d?String(d).slice(0,10).split('-').reverse().join('/'):'n/d';
+  const ym=v=>v?v.split('-').reverse().join('/'):'n/d';
   const hoje=new Date().toISOString().slice(0,10);
   const linhas=fl.map(f=>{
     const fr=API.fluxoRota(f), pf=g.porFluxo[API.fkey(f)]||{}, vol=API.fluxoVolKtGanho(f);
@@ -7781,11 +7835,11 @@ function relatorioClienteHtml(cli){
   const tot={mod:g.mod, otm:g.otm, vol:linhas.reduce((s,l)=>s+(l.vol||0),0)};
   const tab=linhas.map(l=>`<tr><td>${e(l.rota)}</td><td>${e(l.produto)}</td>
     <td class="n">${n1(l.f.tarifa_total)}</td><td class="n">${n1(l.f.teto)}</td>
-    <td class="n">${l.f.teto>0&&l.f.frete?Math.round(l.f.frete/l.f.teto*100)+'%':'—'}</td>
-    <td class="n">${n1(l.f.frete)}</td><td class="n">${n1(l.acessSemDp)}</td><td class="n">${l.dp>0?n1(l.dp):'—'}</td>
-    <td class="n">${l.f.frete>0&&l.acessSemDp!=null?Math.round(l.acessSemDp/l.f.frete*100)+'%':'—'}</td>
-    <td class="n">${l.vol>0?n1(l.vol):'—'}</td>
-    <td class="n">${l.pf.modRsT>0?n1(l.pf.modRsT):'—'}</td><td class="n">${l.pf.otmRsT>0?n1(l.pf.otmRsT):'—'}</td>
+    <td class="n">${l.f.teto>0&&l.f.frete?Math.round((l.f.frete+l.dp)/l.f.teto*100)+'%':'n/d'}</td>
+    <td class="n">${n1(l.f.frete)}</td><td class="n">${n1(l.acessSemDp)}</td><td class="n">${l.dp>0?n1(l.dp):'n/d'}</td>
+    <td class="n">${(l.f.frete+l.dp)>0&&l.acessSemDp!=null?Math.round(l.acessSemDp/(l.f.frete+l.dp)*100)+'%':'n/d'}</td>
+    <td class="n">${l.vol>0?n1(l.vol):'n/d'}</td>
+    <td class="n">${l.pf.modRsT>0?n1(l.pf.modRsT):'n/d'}</td><td class="n">${l.pf.otmRsT>0?n1(l.pf.otmRsT):'n/d'}</td>
     <td class="n"><b>${mi(l.pf.mod)}</b></td><td class="s">${e(l.sit)}</td></tr>`).join('');
   const abert=linhas.filter(l=>l.itens.length).map(l=>`<tr><td>${e(l.rota)} · ${e(l.produto)}</td><td>${
     l.itens.map(i=>`${e(i.item)}: R$ ${n1(i.valor_rs_t)}`).join('<br>')}</td></tr>`).join('');
@@ -7793,7 +7847,7 @@ function relatorioClienteHtml(cli){
     const ok=l.reaj.filter(r=>!r.suspeita).sort((a,b)=>a.vigencia_inicial.localeCompare(b.vigencia_inicial));
     if(ok.length<2) return '';
     const a=ok[0], b=ok[ok.length-1], man=r=>(r.manobra_origem_rs_t||0)+(r.manobra_destino_rs_t||0);
-    const p=(x,y)=>x>0?((y/x-1)*100).toFixed(1).replace('.',',')+'%':'—';
+    const p=(x,y)=>x>0?((y/x-1)*100).toFixed(1).replace('.',',')+'%':'n/d';
     return `<tr><td>${e(l.rota)} · ${e(l.produto)}</td><td>${dt(a.vigencia_inicial)} → ${dt(b.vigencia_inicial)}</td>
       <td class="n">${n1(a.tarifa_contrato)} → ${n1(b.tarifa_contrato)}</td><td class="n">${p(a.tarifa_contrato,b.tarifa_contrato)}</td>
       <td class="n">${p(a.frete_rs_t,b.frete_rs_t)}</td><td class="n">${p(man(a),man(b))}</td><td class="n">${p(a.valor_tr_antt,b.valor_tr_antt)}</td></tr>`;
@@ -7817,17 +7871,17 @@ th{font-weight:600;color:var(--mut);white-space:nowrap}.n{text-align:right;font-
 @media print{main{padding:0}.card{background:none}}
 </style></head><body><main>
 <div class="sub">LogConsult · diagnóstico confidencial preparado para o cliente</div>
-<h1>${e(cli)} — tarifas ferroviárias e serviços acessórios</h1>
+<h1>${e(cli)} - tarifas ferroviárias e serviços acessórios</h1>
 <div class="sub">Emitido em ${dt(hoje)} · volume realizado até ${ym(DB_.volume_ate)} · preços contratuais até ${dt(DB_.precos_contratuais_ate)}</div>
 <div class="cards">
   <div class="card">Rotas analisadas<b>${linhas.length}</b></div>
   <div class="card">Volume últimos 12 meses<b>${Math.round(tot.vol).toLocaleString('pt-BR')} kt</b></div>
-  <div class="card">Redução possível — moderada<b>${mi(tot.mod)}/ano</b></div>
-  <div class="card">Redução possível — otimista<b>${mi(tot.otm)}/ano</b></div>
+  <div class="card">Redução possível - moderada<b>${mi(tot.mod)}/ano</b></div>
+  <div class="card">Redução possível - otimista<b>${mi(tot.otm)}/ano</b></div>
 </div>
-<p class="nota">Valores em R$/t. <b>Moderada</b> = acessória levada à mediana praticada por outros clientes no mesmo serviço, estação e família de produto; <b>otimista</b> = ao menor nível praticado por outro cliente. Referências de mercado são agregadas — nenhum outro cliente é identificado. Direito de passagem não é tratado como acessória (repasse entre concessionárias, Res. ANTT 5.943/2021). Teto ANTT conforme Res. 6.031/2023.</p>
+<p class="nota">Valores em R$/t. <b>Moderada</b> = acessória levada à mediana praticada por outros clientes no mesmo serviço, estação e família de produto; <b>otimista</b> = ao menor nível praticado por outro cliente. Referências de mercado são agregadas - nenhum outro cliente é identificado. Direito de passagem não é tratado como acessória (repasse entre concessionárias, Res. ANTT 5.943/2021): ele soma ao frete na comparação com o teto ANTT (Res. 6.031/2023), e o IPOA é acessórias sobre frete mais direito de passagem.</p>
 <h2>Situação por rota</h2>
-<div class="tw"><table><thead><tr><th>Rota</th><th>Produto</th><th class="n">Tarifa</th><th class="n">Teto ANTT</th><th class="n">Frete/teto</th><th class="n">Frete</th><th class="n">Acessórias</th><th class="n">Dir. passagem</th><th class="n">IPOA</th><th class="n">Vol 12m kt</th><th class="n">Redução mod. R$/t</th><th class="n">Redução otim. R$/t</th><th class="n">Ganho mod./ano</th><th>Observação</th></tr></thead><tbody>${tab}</tbody></table></div>
+<div class="tw"><table><thead><tr><th>Rota</th><th>Produto</th><th class="n">Tarifa</th><th class="n">Teto ANTT</th><th class="n">(Frete + DP)/teto</th><th class="n">Frete</th><th class="n">Acessórias</th><th class="n">Dir. passagem</th><th class="n">IPOA</th><th class="n">Vol 12m kt</th><th class="n">Redução mod. R$/t</th><th class="n">Redução otim. R$/t</th><th class="n">Ganho mod./ano</th><th>Observação</th></tr></thead><tbody>${tab}</tbody></table></div>
 ${abert?`<h2>Abertura das acessórias cobradas</h2><div class="tw"><table><thead><tr><th>Rota</th><th>Itens (R$/t)</th></tr></thead><tbody>${abert}</tbody></table></div>`:''}
 ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2><div class="tw"><table><thead><tr><th>Rota</th><th>Período</th><th class="n">Tarifa</th><th class="n">Δ tarifa</th><th class="n">Δ frete</th><th class="n">Δ manobra</th><th class="n">Δ teto ANTT</th></tr></thead><tbody>${reaj}</tbody></table></div>
 <p class="nota">Quando frete e manobra se movem em sentidos opostos com a tarifa total estável, a divisão entre a parcela regulada (frete, sujeita ao teto) e a acessória foi redefinida sem mudança no valor pago.</p>`:''}
@@ -7852,6 +7906,131 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
   }catch(e){ console.error('Relatório do cliente:', e); }
 })();
 
+/* ---------- 8) Ficha de Fluxo 2026 (base consolidada VLI, nov/2026) ----------
+   Teto contra frete + DP e IPOA = acessórias sem DP ÷ (frete + DP), regra do sócio de 19/nov/2026.
+   Volume pela mesma função do Painel do Cliente (PC_API.volKtRota). */
+(function(){
+  try{
+    const FI=D.ficha||{itens:[]}; if(!FI.itens||!FI.itens.length) return;
+    const API=window.PC_API||null;
+    const IPOA_REF=(D.teto&&D.teto.ipoa_ref)||0.248;   // o IPOA_REF do Painel do Cliente é de escopo de bloco
+    const MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const mref=FI.mes_ref; const lblRef=mref?MES[mref-1]+'/2026':'';
+    const n2=v=>v==null||!isFinite(v)?'n/d':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const pc=v=>v==null||!isFinite(v)?'n/d':Math.round(v*100)+'%';
+    // volume por rota, dividido entre os itens do mesmo cliente × rota × produto
+    const chave=r=>r.cliente+'|'+r.origem+'|'+r.destino+'|'+r.produto;
+    const nItens={}; FI.itens.filter(r=>r.status==='atual').forEach(r=>{ nItens[chave(r)]=(nItens[chave(r)]||0)+1; });
+    const volCache={};
+    const volRota=r=>{ const k=chave(r); if(!(k in volCache)){ try{ volCache[k]=API&&API.volKtRota?API.volKtRota(r.cliente,r.origem,r.destino,r.produto):0; }catch(e){ volCache[k]=0; } } return volCache[k]; };
+    const rows=FI.itens.map(r=>{
+      const base=(r.frete||0)+(r.dp||0);
+      const vol=r.status==='atual'?volRota(r)/(nItens[chave(r)]||1):0;
+      const excIpoa=Math.max(0,(r.acess||0)-IPOA_REF*base);
+      return {...r, base, vol, rota:r.origem+'→'+r.destino, excIpoaAno:excIpoa*vol*1000, gapAno:(r.gap_med_rs_t||0)*vol*1000,
+        dTotal:r.total_ini>0&&r.mes_ini<r.mes_ref?(r.total/r.total_ini-1):null,
+        dFrete:r.frete_ini>0&&r.mes_ini<r.mes_ref?(r.frete/r.frete_ini-1):null,
+        dAcess:r.acess_ini>0&&r.mes_ini<r.mes_ref?(r.acess/r.acess_ini-1):null,
+        alvo:alvoSet.has(r.cliente)};
+    });
+    const atuais=rows.filter(r=>r.status==='atual');
+    const varia=atuais.filter(r=>r.frete_varia).length;   // mesma definição do "acompanha" (build)
+    const med=xs=>{const a=xs.filter(x=>x!=null&&isFinite(x)).sort((x,y)=>x-y); if(!a.length) return null; const i=a.length>>1; return a.length%2?a[i]:(a[i-1]+a[i])/2;};
+    const R=FI.reclass||[];
+    NOVAS.ficha={n:atuais.length, clientes:new Set(atuais.map(r=>r.cliente)).size, ref:lblRef,
+      acimaTeto:atuais.filter(r=>r.pct_teto>1).length, perto:atuais.filter(r=>r.pct_teto>=0.9).length,
+      abaixo75:atuais.filter(r=>r.pct_teto<0.75).length,
+      ipoaMed:med(atuais.map(r=>r.ipoa)), acimaIpoa:atuais.filter(r=>r.ipoa>IPOA_REF).length,
+      excIpoa:atuais.reduce((s,r)=>s+r.excIpoaAno,0), gap:atuais.reduce((s,r)=>s+r.gapAno,0),
+      nRecl:R.length, itRecl:new Set(R.map(r=>r.item)).size, clRecl:new Set(R.map(r=>r.cliente)).size,
+      acomp:atuais.filter(r=>r.acompanha).length, varia,
+      topExc:[...atuais].sort((a,b)=>b.excIpoaAno-a.excIpoaAno)[0]||null,
+      topGapCli:Object.entries(atuais.reduce((o,r)=>{o[r.cliente]=(o[r.cliente]||0)+r.gapAno;return o;},{})).sort((a,b)=>b[1]-a[1]).slice(0,3)};
+    const N=NOVAS.ficha;
+    const kpi=(l,v,sub,st)=>`<div class="kpi"${st?` style="${st}"`:''}><div class="lbl">${l}</div><div class="val">${v}${sub?` <small>${sub}</small>`:''}</div></div>`;
+    const destaque='border-color:color-mix(in oklab,var(--amber) 40%,transparent);background:var(--amber-bg)';
+    document.getElementById('fiRef').textContent=`referência ${lblRef} · ${N.n.toLocaleString('pt-BR')} itens · ${N.clientes} clientes`;
+    document.getElementById('fiKpis').innerHTML=
+      kpi('Frete + DP acima do teto', N.acimaTeto, `${N.perto} itens a 90% ou mais · ${N.abaixo75.toLocaleString('pt-BR')} abaixo de 75%`)+
+      kpi('IPOA mediano', pc(N.ipoaMed), `referência ANTT 24,8% · ${N.acimaIpoa.toLocaleString('pt-BR')} itens acima`, destaque)+
+      kpi('Acessória acima de 24,8%', BRLmi(N.excIpoa)+'/ano', 'excesso sobre a base do teto × volume 12m', destaque)+
+      kpi('Acima da mediana dos pares', BRLmi(N.gap)+'/ano', 'manobra e transbordo, mesma estação e família')+
+      kpi('Trocas frete↔acessória', N.nRecl, `${N.itRecl} itens · ${N.clRecl} clientes · total parado`)+
+      kpi('Manobra acompanha o frete', N.acomp.toLocaleString('pt-BR'), `de ${N.varia.toLocaleString('pt-BR')} itens com frete variando mais de 5% no ano`);
+    const cor=v=>v==null?'':v>0.005?'color:var(--bad)':v<-0.005?'color:var(--good)':'';
+    const pcv=v=>v==null?'n/d':(v>0?'+':'')+(v*100).toFixed(1).replace('.',',')+'%';
+    const t=makeTable('tFicha', rows, [
+      {k:'cliente',h:'Cliente',f:(v,r)=>v+' '+alvoPill(r.alvo)},
+      {k:'rota',h:'Rota',f:v=>`<span class="mono">${v}</span>`},
+      {k:'produto',h:'Produto',f:(v,r)=>`<span class="muted">${escAttr(v)}</span><br><span class="muted mono" style="font-size:10px">item ${r.item}${r.status!=='atual'?' · último preço '+MES[r.mes_ref-1]:''}</span>`},
+      {k:'frete',h:'Frete',num:1,f:n2},
+      {k:'dp',h:'DP',num:1,f:v=>v>0?n2(v):'n/d'},
+      {k:'acess',h:'Acessórias',num:1,f:v=>`<b>${n2(v)}</b>`},
+      {k:'total',h:'Total',num:1,f:n2},
+      {k:'teto',h:'Teto',num:1,f:n2},
+      {k:'pct_teto',h:'% teto',num:1,title:'(frete + DP) ÷ teto',f:v=>`<span style="${v>=0.9?'color:var(--bad)':''}">${pc(v)}</span>`},
+      {k:'ipoa',h:'IPOA',num:1,title:'acessórias sem DP ÷ (frete + DP)',f:v=>`<b style="${v>IPOA_REF*1.5?'color:var(--warn)':''}">${pc(v)}</b>`},
+      {k:'dTotal',h:'Δ total no ano',num:1,f:v=>`<span style="${cor(v)}">${pcv(v)}</span>`},
+      {k:'vol',h:'Vol 12m kt',num:1,f:v=>v>0?N1(v):'n/d'},
+      {k:'excIpoaAno',h:'Excesso IPOA R$/ano',num:1,f:v=>v>0?BRLmi(v):'n/d'},
+      {k:'gapAno',h:'Acima da mediana R$/ano',num:1,f:v=>v>0?BRLmi(v):'n/d'},
+      {k:'n_reclass',h:'Trocas',num:1,title:'meses com troca frete↔acessória',f:(v,r)=>(v?`<b style="color:var(--amber)">${v}</b>`:'')+(r.acompanha?' <span class="pill" title="manobra variou junto com o frete no ano">acompanha</span>':'')},
+    ], {sort:{k:'excIpoaAno',dir:-1}, onRowClick:r=>serie(r)});
+    const fl=new Set();
+    const apply=()=>{ const qq=(document.getElementById('fiSearch').value||'').toLowerCase();
+      const r=rows.filter(x=>(fl.has('antigos')||x.status==='atual')&&(!fl.has('ipoa')||x.ipoa>IPOA_REF)&&(!fl.has('teto')||x.pct_teto>=0.9)
+        &&(!fl.has('recl')||x.n_reclass>0)&&(!fl.has('acomp')||x.acompanha)&&(!fl.has('vol')||x.vol>0)
+        &&(!qq||(x.cliente+' '+x.produto+' '+x.rota+' '+x.item).toLowerCase().includes(qq)));
+      t._render(r); document.getElementById('fiCount').textContent=r.length.toLocaleString('pt-BR')+' itens'; };
+    document.getElementById('fiSearch').oninput=apply;
+    document.querySelectorAll('[data-fif]').forEach(c=>c.onclick=function(){ const k=this.dataset.fif; fl.has(k)?fl.delete(k):fl.add(k); this.classList.toggle('on',fl.has(k)); apply(); });
+    apply();
+    function serie(r){
+      const sr=(FI.serie||{})[r.item]||[];
+      const el=document.getElementById('fiSerie');
+      if(!sr.length){ el.innerHTML=''; return; }
+      el.innerHTML=`<div class="subcard"><div class="sec-h" style="border-top:0;padding-top:0">${escAttr(r.cliente)} · ${escAttr(r.produto)} ${r.rota} · item ${r.item} <span class="h-hint">teto ${n2(r.teto)}</span></div>
+        <div class="tbl-wrap"><table><thead><tr><th>Mês</th><th class="num">Frete</th><th class="num">DP</th><th class="num">Acessórias</th><th class="num">Total</th><th class="num">% teto</th><th class="num">IPOA</th></tr></thead><tbody>${
+        sr.map(([m,f,d,a,tot],i)=>{ const p=sr[i-1]; const mk=(v,pv)=>p&&Math.abs(v-pv)>=0.01?` <span style="${v>pv?'color:var(--bad)':'color:var(--good)'};font-size:10px">${v>pv?'▲':'▼'}</span>`:'';
+          return `<tr><td class="mono">${MES[m-1]}/26</td><td class="num">${n2(f)}${p?mk(f,p[1]):''}</td><td class="num">${d>0?n2(d):'n/d'}</td><td class="num"><b>${n2(a)}</b>${p?mk(a,p[3]):''}</td><td class="num">${n2(tot)}</td><td class="num">${r.teto>0?pc((f+d)/r.teto):'n/d'}</td><td class="num">${(f+d)>0?pc(a/(f+d)):'n/d'}</td></tr>`; }).join('')
+        }</tbody></table></div></div>`;
+      el.scrollIntoView({behavior:'smooth',block:'nearest'});
+    }
+    // trocas frete↔acessória
+    const rr=R.map(r=>({...r, rota:r.origem+'→'+r.destino, mesLbl:MES[r.mes-1]+'/26', alvo:alvoSet.has(r.cliente)}));
+    const tR=makeTable('tFichaRecl', rr, [
+      {k:'cliente',h:'Cliente',f:(v,r)=>v+' '+alvoPill(r.alvo)},
+      {k:'rota',h:'Rota',f:v=>`<span class="mono">${v}</span>`},
+      {k:'produto',h:'Produto',f:(v,r)=>`<span class="muted">${escAttr(v)}</span> <span class="muted mono" style="font-size:10px">item ${r.item}</span>`},
+      {k:'mes',h:'Mês',num:1,f:(v,r)=>`<span class="mono">${r.mesLbl}</span>`},
+      {k:'d_frete',h:'Δ frete',num:1,f:v=>`<span style="${cor(v)}">${v>0?'+':''}${n2(v)}</span>`},
+      {k:'d_acess',h:'Δ acessória',num:1,f:v=>`<b style="${cor(v)}">${v>0?'+':''}${n2(v)}</b>`},
+      {k:'d_total',h:'Δ total',num:1,f:v=>`${v>0?'+':''}${n2(v)}`},
+      {k:'total',h:'Total depois',num:1,f:n2},
+    ], {sort:{k:'d_acess',dir:-1}});
+    const applyR=()=>{ const qq=(document.getElementById('frSearch').value||'').toLowerCase();
+      const r=rr.filter(x=>!qq||(x.cliente+' '+x.produto+' '+x.rota+' '+x.item).toLowerCase().includes(qq)); tR._render(r);
+      document.getElementById('frCount').textContent=r.length+' trocas'; };
+    document.getElementById('frSearch').oninput=applyR; applyR();
+    // isonomia
+    const iso=(FI.iso||[]).map(r=>({...r, spread:r.minimo>0?r.maximo/r.minimo:null}));
+    const tI=makeTable('tFichaIso', iso, [
+      {k:'servico',h:'Serviço'},
+      {k:'estacao',h:'Estação',f:v=>`<span class="mono">${v}</span>`},
+      {k:'fam',h:'Família',f:v=>`<span class="muted">${escAttr(v)}</span>`},
+      {k:'n_cli',h:'Clientes',num:1},
+      {k:'minimo',h:'Menor',num:1,f:n2},
+      {k:'mediana',h:'Mediana',num:1,f:n2},
+      {k:'maximo',h:'Maior',num:1,f:v=>`<b>${n2(v)}</b>`},
+      {k:'spread',h:'Maior ÷ menor',num:1,f:v=>v==null?'n/d':`<span style="${v>=3?'color:var(--bad)':''}">${v.toFixed(1).replace('.',',')}×</span>`},
+    ], {sort:{k:'spread',dir:-1}});
+    const applyI=()=>{ const qq=(document.getElementById('fsSearch').value||'').toLowerCase();
+      const r=iso.filter(x=>!qq||(x.servico+' '+x.estacao+' '+x.fam).toLowerCase().includes(qq)); tI._render(r);
+      document.getElementById('fsCount').textContent=r.length+' combinações'; };
+    document.getElementById('fsSearch').oninput=applyI; applyI();
+  }catch(e){ console.error('Ficha de Fluxo 2026:', e); }
+})();
+
 const RAIL_TITLES={
   basepotenciais:'Insights · Potenciais Clientes',
   horizontes:'Insights · Simulador Excel',
@@ -7859,7 +8038,7 @@ const RAIL_TITLES={
   ipoa:'Insights · IPOA', regulatorio:'Normas & referências ANTT', comparativo:'Insights · Comparativo',
   mercado:'Insights · Mercado', custologistico:'Insights · Custo Logístico e Share', volume:'Insights · Volume', premissa:'Insights · Premissa de Planejamento',
   contratos:'Insights · Contratos', contatos:'Insights · Contatos', alvos:'Sobre os Alvos',
-  novonegocio:'Insights · Novo Negócio', reajustes:'Insights · Reajustes e Vencimentos',
+  novonegocio:'Insights · Novo Negócio', reajustes:'Insights · Reajustes e Vencimentos', ficha:'Insights · Ficha de Fluxo 2026',
   portoservicos:'Insights · Porto e Serviços', captura:'Insights · Pendências de Captura',
 };
 const RAIL={
@@ -8028,6 +8207,17 @@ const RAIL={
       {hd:'Premissa em aberto', ref:'Custo fixo da manobra', bd:'O modelo hoje rateia o custo pelo volume (≈ R$ 1,31/t em qualquer escala). Sem um custo fixo real não há economia de escala — é uma decisão de premissa pendente.'},
       {hd:'Como usar', ref:'★ → valuation · ⚙ → simulador', bd:'Marque com ★ os clientes que entram no valuation; "abrir simulador" leva os dados do cliente para a simulação de equipe e equipamentos.'},
     ];
+  },
+  ficha(){
+    const F=NOVAS.ficha; if(!F) return null;
+    const it=[
+      {hd:'Teto não é o problema', ref:`${F.acimaTeto} itens acima do teto`, bd:`Com frete + direito de passagem contra o teto, ${F.abaixo75.toLocaleString('pt-BR')} de ${F.n.toLocaleString('pt-BR')} itens ficam abaixo de 75% e ${F.perto} chegam a 90%. A parcela regulada tem folga; o ganho está nas acessórias.`},
+      {hd:'Acessória acima da referência', ref:`IPOA mediano ${F.ipoaMed!=null?Math.round(F.ipoaMed*100):'n/d'}% · ${BRLmi(F.excIpoa)}/ano`, bd:`${F.acimaIpoa.toLocaleString('pt-BR')} itens têm IPOA acima de 24,8% (acessórias sem DP sobre frete + DP). O valor é o excesso sobre 24,8% vezes o volume real dos últimos 12 meses.`},
+      {hd:'Manobra precificada como frete', ref:`${F.acomp.toLocaleString('pt-BR')} de ${F.varia.toLocaleString('pt-BR')} itens`, bd:'Nos itens em que o frete variou mais de 5% no ano, a manobra mudou junto, mês a mês. Serviço com preço de custo não mudaria com a sazonalidade do frete.'},
+      {hd:'Troca entre frete e acessória', ref:`${F.nRecl} meses · ${F.itRecl} itens · ${F.clRecl} clientes`, bd:'Meses em que frete e acessória andaram em sentidos opostos com o total parado. Concentrado em siderurgia.'},
+    ];
+    if(F.topGapCli&&F.topGapCli.length) it.push({hd:'Acima da mediana dos pares', ref:BRLmi(F.gap)+'/ano', bd:'Maiores: '+F.topGapCli.map(([c,v])=>`${c} (${BRLmi(v)})`).join(', ')+'.'});
+    return it;
   },
   reajustes(){
     const R=NOVAS.reaj, V=NOVAS.venc; if(!R&&!V) return null;

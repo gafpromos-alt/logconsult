@@ -336,6 +336,7 @@ def _merc_base(m):
 # nunca por 1º token (era exatamente assim que "COQUE GROSSO"/"COQUE PETROLEO"/"COQUE FINO"
 # viravam o mesmo produto). Sem match, None honesto — nunca o total da rota emprestado.
 _PROD_SINONIMOS = {"PRO": "PRODUTO", "ROCHA": "FOSFATO"}
+_PROD_ALIAS_FULL = {"COQUE VERDE PETROLEO": "COQUE PETROLEO"}   # mesmo mapa do painel (nov/2026)
 _ITEM_SUFIXO_RE = re.compile(r"\(ITEM\s+\S+?\)", re.I)
 def _prod_norm_full(p):
     s = _ITEM_SUFIXO_RE.sub("", str(p if p is not None else "")).strip().upper()
@@ -343,7 +344,8 @@ def _prod_norm_full(p):
     if not parts:
         return s
     parts[0] = _PROD_SINONIMOS.get(parts[0], parts[0])
-    return " ".join(t for t in parts if t not in ("DE", "DO", "DA"))
+    j = " ".join(t for t in parts if t not in ("DE", "DO", "DA"))
+    return _PROD_ALIAS_FULL.get(j, j)
 
 vm = q("""SELECT cliente, origem, destino, mercadoria AS produto, ano, mes,
                  SUM(realizado_ktu) ktu FROM volume_hist
@@ -491,12 +493,25 @@ acess_mercado = {
 }
 
 # ---------------------------------------------------------------- TETO TARIFÁRIO
-teto = q("""SELECT item,cliente,origem,destino,produto,ipoa,acessorias,frete,
+# Regra do sócio (19/nov/2026): a base do teto é frete + direito de passagem e o IPOA é
+# acessórias sem DP ÷ (frete + DP). ipoa_teto já vem com teto_1/ipoa nessa regra e com a coluna
+# dp (add_ficha_fluxo.py). Para as bases antigas (tarifas_praticadas), o DP do item sai de
+# fluxos_servico (mês de referência da ficha 2026 quando o item está nela).
+_DP_ITEM = {int(r.itens): float(r.dp) for r in q(
+    """SELECT itens, SUM(tarifa) dp FROM fluxos_servico WHERE servicos LIKE 'DIREITO DE PASSAGEM%'
+       GROUP BY itens""").itertuples() if str(r.itens).replace('.0', '').isdigit()}
+def _dp_de(item):
+    try:
+        return _DP_ITEM.get(int(item), 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+teto = q("""SELECT item,cliente,origem,destino,produto,ipoa,acessorias,frete,COALESCE(dp,0) dp,
                    teto,teto_1 AS pct_teto,total,corredor_vli,km_rota
             FROM ipoa_teto""")
 teto["cliente"] = teto["cliente"].map(canon)
-for c in ["ipoa","acessorias","frete","teto","pct_teto","total","km_rota"]:
+for c in ["ipoa","acessorias","frete","dp","teto","pct_teto","total","km_rota"]:
     teto[c] = pd.to_numeric(teto[c], errors="coerce")
+teto["acessorias"] = teto["acessorias"] - teto["dp"].fillna(0)   # acessórias SEM DP daqui em diante
 teto["folga_teto_pct"] = (1 - teto["pct_teto"])*100     # quanto falta p/ o teto
 teto_fluxos = teto.sort_values("pct_teto", ascending=False).copy()
 teto_fluxos = teto_fluxos.rename(columns={"corredor_vli": "corredor"})
@@ -520,6 +535,11 @@ for _c in ["frete","acess","pct_teto","ipoa","km_rota"]:
     tf[_c] = pd.to_numeric(tf[_c], errors="coerce")
 tf["acess"] = tf["acess"].fillna(0.0)
 tf["total"] = tf["frete"] + tf["acess"]
+# regra de 19/nov/2026: %teto sobre frete + DP e IPOA = acessórias sem DP ÷ (frete + DP)
+tf["dp"] = tf["item"].map(_dp_de)
+tf["pct_teto"] = np.where((tf["frete"] > 0) & tf["pct_teto"].notna(),
+                          tf["pct_teto"] * (tf["frete"] + tf["dp"]) / tf["frete"], np.nan)
+tf["ipoa"] = np.where((tf["frete"] + tf["dp"]) > 0, (tf["acess"] - tf["dp"]) / (tf["frete"] + tf["dp"]), np.nan)
 tf["vigencia"] = tf["vigencia"].astype(str).str.slice(0, 10)
 tf["vig_dt"] = pd.to_datetime(tf["vigencia"], errors="coerce")
 # alguns itens vêm sem origem/destino/produto (registro incompleto na base) — antes o
@@ -931,7 +951,9 @@ for c in ["frete","acess","teto","km_rota"]:
 contr["vigencia"]=contr["vigencia"].astype(str).str.slice(0,10)
 contr["ano_exp"]=contr["vigencia"].str.slice(0,4)
 contr["tarifa_total"]=contr["frete"]+contr["acess"].fillna(0)
-contr["pct_teto"]=contr["teto"]   # a coluna 'teto' da base já é o %teto (frete/teto), 0–1
+# a coluna 'teto' da base é frete/teto; pela regra de 19/nov/2026 a base do teto é frete + DP
+contr["dp"]=contr["item"].map(_dp_de)
+contr["pct_teto"]=np.where(contr["teto"]>0, contr["teto"]*(contr["frete"]+contr["dp"])/contr["frete"], np.nan)
 contr["alvo"]=contr["cliente"].map(is_alvo)
 contr_ano=(contr.groupby("ano_exp").size().reset_index(name="n").sort_values("ano_exp"))
 # vencidos (já passaram) vs. vencendo no restante de 2026
@@ -1204,8 +1226,10 @@ _enrich_op["cliente"] = _enrich_op["cliente"].map(canon)
 _enrich_op = _enrich_op.drop_duplicates(["cliente","origem","destino","produto"])
 op = op.merge(_enrich_op, on=["cliente","origem","destino","produto"], how="left")
 op["tarifa_total"] = op["frete"] + op["acess"]
-op["teto_valor"]   = op["frete"] / op["pct_teto"]           # teto regula o frete
-op["carga_vs_teto"]= op["tarifa_total"] / op["teto_valor"]  # custo total vs teto-frete
+op["teto_valor"]   = op["frete"] / op["pct_teto"]           # teto em R$/t (base guarda frete/teto)
+op["dp"] = op["item"].map(_dp_de)
+op["pct_teto"]     = (op["frete"] + op["dp"]) / op["teto_valor"]   # regra: frete + DP contra o teto
+op["carga_vs_teto"]= (op["frete"] + op["dp"]) / op["teto_valor"]
 op["vigencia"] = op["vigencia"].astype(str).str.slice(0, 10)
 op["alvo"] = op["cliente"].map(is_alvo)
 def _status(r):
@@ -1234,7 +1258,7 @@ op_resumo = {s: int((op["status"] == s).sum()) for s in ["acima","limite","proxi
 
 # ============ ANÁLISE INTELIGENTE DO TETO + IPOA (prioridade de negociação) ============
 IPOA_REF = 0.248   # referência ANTT (Indicador de Participação das Operações Acessórias)
-op["ipoa"] = np.where(op["frete"] > 0, op["acess"] / op["frete"], np.nan)
+op["ipoa"] = np.where((op["frete"] + op["dp"]) > 0, (op["acess"] - op["dp"]) / (op["frete"] + op["dp"]), np.nan)
 _rc = {str(k).lower(): v for k, v in marg_cli.set_index("cliente")["rec_mi"].to_dict().items()}
 def _receita(nome):
     n = str(nome).lower()
@@ -1505,11 +1529,13 @@ def _insight(r):
 teto_insights = [_insight(r) for r in _cli.head(8).itertuples()]
 
 # IPOA por ferrovia e por fluxo (tabela ipoa_teto — tem a ferrovia de faturamento)
-ip = q("SELECT cliente,origem,destino,produto,frete,acessorias,ferrovia_fatura,corredor_vli FROM ipoa_teto")
+ip = q("""SELECT cliente,origem,destino,produto,frete,acessorias,COALESCE(dp,0) dp,ferrovia_fatura,corredor_vli
+          FROM ipoa_teto""")
 ip["cliente"] = ip["cliente"].map(canon)
-for cc in ["frete","acessorias"]: ip[cc] = pd.to_numeric(ip[cc], errors="coerce")
+for cc in ["frete","acessorias","dp"]: ip[cc] = pd.to_numeric(ip[cc], errors="coerce")
 ip = ip[(ip["frete"] > 0) & ip["acessorias"].notna()].copy()
-ip["ipoa"] = ip["acessorias"] / ip["frete"]
+ip["acessorias"] = ip["acessorias"] - ip["dp"].fillna(0)                     # sem DP
+ip["ipoa"] = ip["acessorias"] / (ip["frete"] + ip["dp"].fillna(0))           # sobre frete + DP
 ip["estouro"] = ip["ipoa"] > IPOA_REF
 ip["alvo"] = ip["cliente"].map(is_alvo)
 ipoa_fer = (ip.groupby("ferrovia_fatura")
@@ -1518,7 +1544,7 @@ ipoa_fer["ipoa_med"] = (ipoa_fer["ipoa_med"]*100).round(1)
 ipoa_fer["pct_estouro"] = (ipoa_fer["estouro"]/ipoa_fer["n"]*100).round(0)
 ipoa_fer = ipoa_fer.sort_values("ipoa_med", ascending=False)
 ipoa_lista = ip.sort_values("ipoa", ascending=False)[
-    ["cliente","origem","destino","produto","frete","acessorias","ipoa","ferrovia_fatura","estouro","alvo"]].head(500).round(3)
+    ["cliente","origem","destino","produto","frete","dp","acessorias","ipoa","ferrovia_fatura","estouro","alvo"]].head(500).round(3)
 ipoa_data = {"ref": IPOA_REF, "ipoa_medio": round(ip["ipoa"].mean()*100, 1),
              "n_total": int(len(ip)), "n_estouro": int(ip["estouro"].sum()),
              "por_ferrovia": rec(ipoa_fer), "lista": rec(ipoa_lista)}
@@ -1707,6 +1733,12 @@ _ipg = q("""SELECT ferrovia_fatura,
             FROM ipoa_geral WHERE ferrovia_fatura IS NOT NULL GROUP BY ferrovia_fatura""")
 ipoa_ferrovia = {r.ferrovia_fatura: round(r.acess_tot / r.frete_tot, 4)
                  for r in _ipg.itertuples() if r.frete_tot}
+# nov/2026: onde a ferrovia tem itens da Ficha de Fluxo 2026, a média real passa a ser a de 2026 e
+# pela regra do sócio (acessórias sem DP ÷ (frete + DP)); ipoa_geral (base antiga) só completa.
+_ipf = q("""SELECT ferrovia_fatura, SUM(frete + COALESCE(dp,0)) base, SUM(acessorias - COALESCE(dp,0)) acess
+            FROM ipoa_teto WHERE fonte_2026 IS NOT NULL AND ferrovia_fatura IS NOT NULL
+            GROUP BY ferrovia_fatura HAVING COUNT(*) >= 10""")
+ipoa_ferrovia.update({r.ferrovia_fatura: round(r.acess / r.base, 4) for r in _ipf.itertuples() if r.base})
 
 # ================= PREMISSAS OPERACIONAIS DE MANOBRA — Grãos e Fertilizantes =================
 # Pedido do usuário (21/jul/2026): horário de funcionamento dos terminais + tempo de carga e
@@ -1905,6 +1937,77 @@ porto_servicos = {
     "clientes": rec(pd.DataFrame(_cli_rows).sort_values("rec_mi", ascending=False).round(2)) if _cli_rows else [],
 }
 
+# ---- 5) Ficha de Fluxo Geral 2026 (VLI, nov/2026): análise item a item ----
+# Itens com preço no mês de referência, componentes (frete, DP, manobras, transbordo, outros),
+# teto e IPOA pela regra do sócio, variação no ano, trocas frete↔acessória mês a mês e distância
+# de cada manobra/transbordo para a mediana dos OUTROS clientes no mesmo serviço, estação e
+# família de produto. O volume (e portanto R$/ano) é calculado no painel pela mesma função de
+# volume dos últimos 12 meses do Painel do Cliente.
+ficha = {"itens": [], "reclass": [], "iso": [], "serie": {}, "mes_ref": None}
+try:
+    _fr = q("SELECT * FROM ficha_fluxo_ref")
+    _fm = q("SELECT * FROM ficha_fluxo_item_mes WHERE programado=0 AND frete>0 ORDER BY item, mes")
+    _fs = q("""SELECT s.item, s.cliente, s.origem, s.destino, s.produto, s.servico, s.valor
+               FROM ficha_fluxo_servico_mes s JOIN ficha_fluxo_ref r ON r.item=s.item AND r.mes_ref=s.mes
+               WHERE r.status='atual'""")
+    _FAM = {"SOJA": "GRAOS", "MILHO": "GRAOS", "FARELO DE SOJA": "GRAOS", "FARELO DE MILHO": "GRAOS",
+            "FERTILIZANTES": "FERTILIZANTES", "ENXOFRE": "FERTILIZANTES", "ROCHA FOSF SECA": "FERTILIZANTES",
+            "ROCHA FOS UMIDA": "FERTILIZANTES"}
+    _fam = lambda p: _FAM.get(p, "SIDERURGIA" if p in ("PRO SIDERURGICO", "FIO MAQUINA", "FERRO GUSA",
+                     "MINERIO FERRO", "COQUE PETROLEO", "COQUE GROSSO", "COQUE FINO", "CARVAO MINERAL",
+                     "CALCARIO BRITAD") else p)
+    # trocas frete↔acessória: mês seguido, sentidos opostos, cada lado >= R$1/t, total varia < 1%
+    _fm["d_frete"] = _fm.groupby("item")["frete"].diff()
+    _fm["d_acess"] = _fm.groupby("item")["acess"].diff()
+    _fm["d_total"] = _fm.groupby("item")["total"].diff()
+    _fm["m_ant"] = _fm.groupby("item")["mes"].shift()
+    _ev = _fm[(_fm["mes"] - _fm["m_ant"] == 1) & (np.sign(_fm["d_frete"]) != np.sign(_fm["d_acess"]))
+              & (_fm["d_frete"].abs() >= 1) & (_fm["d_acess"].abs() >= 1)
+              & ((_fm["d_total"].abs() / (_fm["total"] - _fm["d_total"])) < 0.01)]
+    ficha["reclass"] = rec(_ev[["item", "cliente", "origem", "destino", "produto", "mes", "frete", "acess",
+                                "total", "d_frete", "d_acess", "d_total"]].round(2))
+    _nrec = _ev.groupby("item").size()
+    # manobra acompanha o frete: no ano, frete variou > 5% e manobra variou junto
+    _mm = _fm.assign(man=_fm["manobra_origem"] + _fm["manobra_destino"])
+    _ag = _mm.groupby("item").agg(n=("mes", "count"), fmin=("frete", "min"), fmax=("frete", "max"),
+                                  mmin=("man", "min"), mmax=("man", "max"))
+    _varia = (_ag["n"] >= 4) & (_ag["fmax"] / _ag["fmin"] > 1.05)
+    _acomp = _varia & (_ag["mmin"] > 0) & (_ag["mmax"] / _ag["mmin"] > 1.03)
+    # isonomia por serviço × estação × família (valores < R$0,50 são simbólicos e ficam fora)
+    _fs = _fs[_fs["servico"].isin(["MANOBRA ORIGEM", "MANOBRA DESTINO", "TRANSBORDO ORIGEM"]) & (_fs["valor"] >= 0.5)].copy()
+    _fs["fam"] = _fs["produto"].map(_fam)
+    _fs["estacao"] = np.where(_fs["servico"].str.contains("ORIGEM"), _fs["origem"], _fs["destino"])
+    _k = ["servico", "estacao", "fam"]
+    _pc = _fs.groupby(_k + ["cliente"])["valor"].median().reset_index()
+    _st = _pc.groupby(_k)["valor"].agg(n_cli="count", minimo="min", mediana="median", maximo="max").reset_index()
+    ficha["iso"] = rec(_st[_st["n_cli"] >= 3].round(2))
+    _med_out = {}
+    for _key, _g in _pc.groupby(_k):
+        for _c in _g["cliente"]:
+            _o = _g[_g["cliente"] != _c]["valor"]
+            _med_out[_key + (_c,)] = float(_o.median()) if len(_o) >= 2 else None
+    _fs["med_out"] = [_med_out.get((a, b, c, d)) for a, b, c, d in zip(_fs["servico"], _fs["estacao"], _fs["fam"], _fs["cliente"])]
+    _fs["gap"] = np.where(_fs["med_out"].notna(), np.maximum(0, _fs["valor"] - _fs["med_out"].fillna(0)), 0.0)
+    _gap_item = _fs.groupby("item")["gap"].sum()
+    _ref_m = int(_fr.loc[_fr["status"] == "atual", "mes_ref"].max()) if len(_fr) else None
+    ficha["mes_ref"] = _ref_m
+    _fr["fam"] = _fr["produto"].map(_fam)
+    _fr["n_reclass"] = _fr["item"].map(_nrec).fillna(0).astype(int)
+    _fr["acompanha"] = _fr["item"].map(_acomp).fillna(False).astype(bool)
+    _fr["frete_varia"] = _fr["item"].map(_varia).fillna(False).astype(bool)
+    _fr["gap_med_rs_t"] = _fr["item"].map(_gap_item).fillna(0.0)
+    _fr["alvo"] = _fr["cliente"].map(is_alvo)
+    ficha["itens"] = rec(_fr[["item", "cliente", "origem", "destino", "produto", "fam", "microrregiao", "mes_ref",
+                              "status", "frete", "dp", "manobra_origem", "manobra_destino", "transbordo", "outros",
+                              "acess", "total", "teto", "pct_teto", "ipoa", "mes_ini", "frete_ini", "acess_ini",
+                              "total_ini", "n_reclass", "acompanha", "frete_varia", "gap_med_rs_t", "alvo"]].round(4))
+    # série mensal compacta por item: [mes, frete, dp, acess, total]
+    for _it, _g in _fm.groupby("item"):
+        ficha["serie"][int(_it)] = [[int(m), round(f, 2), round(d, 2), round(a, 2), round(t, 2)]
+                                     for m, f, d, a, t in zip(_g["mes"], _g["frete"], _g["dp"], _g["acess"], _g["total"])]
+except Exception as _e:
+    print("  ! ficha 2026 indisponível no painel:", _e)
+
 # ---- 4) Rotas inativas e unidade no Painel do Cliente ----
 # rota com volume na base mas NENHUM nos 12 meses da janela (volume_hist) nem no P&L realizado
 # desde jan/2025 é "rota inativa": exibir como ativa (com ganho/ano) era a inconsistência.
@@ -1957,7 +2060,7 @@ data = {
   "acessorias": {"por_servico": rec(por_servico),
                  "por_cliente": rec(acess_cliente.head(60))},
   "teto": {"fluxos": rec(teto_fluxos[["item","cliente","origem","destino","produto","corredor",
-                 "frete","teto","pct_teto","acessorias","acess_sugerida","acess_sugerida_fonte","acess_delta",
+                 "frete","dp","teto","pct_teto","acessorias","acess_sugerida","acess_sugerida_fonte","acess_delta",
                  "acess_sugerida_moderado","acess_delta_moderado",
                  "acess_origem","acess_destino","acess_outras",
                  "receita_potencial","receita_potencial_moderado","receita_ano","pct_potencial_receita",
@@ -1983,6 +2086,7 @@ data = {
   "ipoa_ferrovia": ipoa_ferrovia,
   "premissas_manobra_graos": premissas_manobra_graos,
   "porto_servicos": porto_servicos,
+  "ficha": ficha,
 }
 
 # sem mascara de codinome — nome real da concessionária (VLI) exibido diretamente

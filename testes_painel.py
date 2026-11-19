@@ -52,9 +52,14 @@ def testes_banco():
         ok(f"{f}_precos_contratuais" in tabs, f"tabela-fonte ausente: {f}_precos_contratuais")
 
     # 2. IPOA = acessórias ÷ frete
-    n = q("""SELECT COUNT(*) FROM projeto_fluxo_tarifas WHERE frete>0 AND acessorias IS NOT NULL
-             AND ABS(ipoa - acessorias/frete) > 0.0005""")[0][0]
-    ok(n == 0, f"{n} fluxo(s) com IPOA gravado ≠ acessórias ÷ frete")
+    n = q("""SELECT COUNT(*) FROM projeto_fluxo_tarifas WHERE (frete + COALESCE(dp_rs_t,0))>0
+             AND acessorias IS NOT NULL
+             AND ABS(ipoa - (acessorias - COALESCE(dp_rs_t,0))/(frete + COALESCE(dp_rs_t,0))) > 0.0005""")[0][0]
+    ok(n == 0, f"{n} fluxo(s) com IPOA gravado ≠ acessórias sem DP ÷ (frete + DP)")
+    # ipoa_teto segue a mesma regra (teto_1 = (frete + DP)/teto)
+    n = q("""SELECT COUNT(*) FROM ipoa_teto WHERE teto>0
+             AND ABS(teto_1 - (frete + COALESCE(dp,0))/teto) > 0.0005""")[0][0]
+    ok(n == 0, f"{n} linha(s) de ipoa_teto com % do teto ≠ (frete + DP) ÷ teto")
 
     # 3. vigência: data final ISO ou vazia (um formato, um significado)
     ruins = q("""SELECT cliente, fluxo, vigencia FROM projeto_fluxo_tarifas
@@ -137,7 +142,7 @@ def testes_painel():
     d = out["dados"] or {}
     ok(d.get("pc_api"), "window.PC_API não foi criado")
     nv = d.get("novas") or {}
-    for k in ("reaj", "venc", "porto", "captura"):
+    for k in ("reaj", "venc", "porto", "captura", "ficha"):
         ok(nv.get(k), f"aba nova sem dado: {k}")
     cli = d.get("clientes") or {}
     ok(len(cli) >= 20, f"só {len(cli)} clientes no Painel do Cliente")

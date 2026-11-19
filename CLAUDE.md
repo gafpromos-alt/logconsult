@@ -28,6 +28,13 @@ esses arquivos.
   qualquer mudança; os números das telas só valem com 0 falhas.
 - `connect_{vibra,raizen,alesat,cenibra,suzano,petrobahia,petronac,sabba}_precos.py` estão
   obsoletos (apagam o cliente inteiro) — não usar; o conector único os substitui.
+- **Ficha de Fluxo Geral 2026** (`07_Dados VLI/Base_Consolidada_Ficha_de_Fluxo_Geral.xlsx`, nov/2026):
+  `add_ficha_fluxo.py` grava `ficha_fluxo_servico_mes`/`ficha_fluxo_item_mes`/`ficha_fluxo_ref`,
+  troca em `fluxos_servico` (pares) os itens da ficha pelo mês de referência e atualiza
+  `ipoa_teto` (colunas `dp`, `fonte_2026`). `connect_ficha_fluxo.py` (dentro de
+  add_projetos_clientes) leva a ficha ao Painel do Cliente: pelo item citado na cobertura, senão
+  pela rota (maior tarifa), e cria fluxos para rotas/clientes sem painel. Ficha nova: substituir
+  o arquivo e rodar `atualizar_tudo.py --sem-base`.
 - `gerar_indice_videos.py` gera `09_Fotos/_indice_videos.csv` (diário de captura: vídeo →
   status/cliente/script). Rodar depois de minerar vídeos novos.
 - Regras de negócio que definem os números: `../06_Corporate_Memory/Regras_e_Decisoes_LogConsultOS.md`.
@@ -57,6 +64,10 @@ esses arquivos.
 - Ao editar `painel_template.html`, rodar `python3 atualizar_tudo.py --so-painel` (compila e
   roda os testes). Id novo no HTML: conferir que não existe em outra aba (`tCaptura`/`capKpis`
   já colidiram uma vez e uma tabela escrevia por cima da outra).
+- **Teto e IPOA (regra do sócio, 19/nov/2026):** % do teto = (frete + DP) ÷ teto; IPOA =
+  acessórias sem DP ÷ (frete + DP). `acessorias` no banco soma o DP; o DP separado está em
+  `projeto_fluxo_tarifas.dp_rs_t` e `ipoa_teto.dp`. Nunca voltar a comparar teto só com frete.
+- Pares de manobra ignoram valores abaixo de R$ 0,50/t (cobrança simbólica).
 - Volume "últimos 12 meses" = janela ancorada no último mês da BASE (não da rota); rota sem
   tráfego na janela tem volume 0 e selo "rota inativa".
 - Funções de ganho/volume do Painel do Cliente são expostas em `window.PC_API`; telas fora

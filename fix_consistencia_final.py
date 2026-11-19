@@ -25,8 +25,8 @@ script que escreve nessas duas tabelas. Idempotente.
    conectores gravavam a data INICIAL (dd/mm/aaaa) na mesma coluna. Ela vai para a coluna
    nova `vigencia_inicio` e `vigencia` fica NULL (honesto: fim desconhecido). IPIRANGA grava
    a data final em dd/mm/aaaa → convertida.
-3. IPOA = acessórias ÷ frete em todas as linhas (52 linhas tinham o IPOA da fonte original,
-   de antes da reconciliação de frete/acessórias).
+3. IPOA = acessórias sem DP ÷ (frete + DP) em todas as linhas (regra do sócio, 19/nov/2026;
+   antes era acessórias ÷ frete). Coluna dp_rs_t com o DP da abertura.
 4. Unidade: os fluxos de contêiner (ARCELORMITTAL "CNTR CHEIO 20 P ...") têm preço em
    R$/contêiner (R$ 1.260 a R$ 4.666) gravado nas mesmas colunas de R$/t. Coluna nova
    `unidade` ('R$/t' ou 'R$/contêiner'); o painel não multiplica R$/contêiner por tonelada
@@ -149,9 +149,19 @@ def vigencias(cur):
 
 
 def ipoa(cur):
+    """Regra do sócio (19/nov/2026): IPOA = acessórias sem DP / (frete + DP).
+    `acessorias` no banco soma o DP (fecha com a tarifa); o DP sai da abertura do fluxo.
+    Grava também a coluna dp_rs_t, para o painel e os testes usarem o mesmo número."""
+    cols = [r[1] for r in cur.execute("PRAGMA table_info(projeto_fluxo_tarifas)")]
+    if "dp_rs_t" not in cols:
+        cur.execute("ALTER TABLE projeto_fluxo_tarifas ADD COLUMN dp_rs_t REAL")
+    cur.execute("""UPDATE projeto_fluxo_tarifas SET dp_rs_t = COALESCE((
+                     SELECT SUM(a.valor_rs_t) FROM projeto_acessorias_abertas a
+                     WHERE a.cliente = projeto_fluxo_tarifas.cliente AND a.fluxo = projeto_fluxo_tarifas.fluxo
+                       AND (UPPER(a.item) LIKE 'DIREITO DE PASSAGEM%' OR UPPER(a.item) LIKE 'DP %')), 0)""")
     cur.execute("""UPDATE projeto_fluxo_tarifas
-                   SET ipoa = CASE WHEN frete > 0 AND acessorias IS NOT NULL
-                                   THEN ROUND(acessorias / frete, 4) ELSE NULL END""")
+                   SET ipoa = CASE WHEN (frete + dp_rs_t) > 0 AND acessorias IS NOT NULL
+                                   THEN ROUND((acessorias - dp_rs_t) / (frete + dp_rs_t), 4) ELSE NULL END""")
     return cur.rowcount
 
 

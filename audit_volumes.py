@@ -49,7 +49,9 @@ from canon import canon  # noqa: E402
 
 # ---------------------------------------------------------------- utilidades
 
-_PROD_SINONIMOS = {"PRO": "PRODUTO"}
+_PROD_SINONIMOS = {"PRO": "PRODUTO", "ROCHA": "FOSFATO"}   # igual ao painel
+_PROD_ALIAS_FULL = {"COQUE VERDE PETROLEO": "COQUE PETROLEO"}
+ANCORA_GLOBAL = [None]   # último mês (ano*12+mes) com volume na base inteira, preenchido em carregar()
 _ITEM_RE = re.compile(r"\(ITEM\s+\S+?\)", re.I)
 _MERC_GRADE_SUFFIX_RE = re.compile(r"\s*-\s+\S+$")
 
@@ -76,7 +78,8 @@ def pc_norm_full(p):
     if not parts or not parts[0]:
         return s
     parts[0] = _PROD_SINONIMOS.get(parts[0], parts[0])
-    return " ".join(t for t in parts if t not in _STOPWORDS)
+    j = " ".join(t for t in parts if t not in _STOPWORDS)
+    return _PROD_ALIAS_FULL.get(j, j)
 
 
 def merc_base(m):
@@ -109,6 +112,9 @@ def ult12_sum(anos_map):
                 ancora = idx
     if ancora < 0:
         return None
+    # mesma regra do painel (nov/2026): série cujo último mês caiu fora da janela global = 0
+    if ANCORA_GLOBAL[0] and ancora <= ANCORA_GLOBAL[0] - 12:
+        return 0.0
     total = 0.0
     achou = False
     for i in range(12):
@@ -182,6 +188,7 @@ def carregar(conn):
         full = pc_norm_full(prod)
         pcvolidx[(cli_n, o, d)][full][ano][mes] = pcvolidx[(cli_n, o, d)][full][ano].get(mes, 0.0) + t
 
+    ANCORA_GLOBAL[0] = max((a * 12 + m for (_, _, _, _, a, m) in pcvm), default=None)
     return fluxos, pcvolidx, gt_rota
 
 
@@ -193,6 +200,9 @@ def pc_vol_lookup(pcvolidx, cli_n, o, d, produto):
     if full in nomes:
         return nomes[full]
     cands = [n for n in nomes if n != full and (n.startswith(full) or full.startswith(n))]
+    if len(cands) > 1 and ANCORA_GLOBAL[0]:   # desempate pela janela, igual ao painel
+        g = ANCORA_GLOBAL[0]
+        cands = [n for n in cands if any(a * 12 + m > g - 12 for a, ms in nomes[n].items() for m in ms)]
     if len(cands) == 1:
         return nomes[cands[0]]
     return None

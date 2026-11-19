@@ -86,7 +86,8 @@ const coleta = `
     reaj: NOVAS.reaj ? {n: NOVAS.reaj.n, nSerie: NOVAS.reaj.nSerie} : null,
     venc: NOVAS.venc ? {n: NOVAS.venc.n, vencidos: NOVAS.venc.vencidos} : null,
     porto: NOVAS.porto ? {rec: NOVAS.porto.rec} : null,
-    captura: NOVAS.captura ? {n: NOVAS.captura.n} : null } : null;
+    captura: NOVAS.captura ? {n: NOVAS.captura.n} : null,
+    ficha: NOVAS.ficha ? {n: NOVAS.ficha.n, acimaTeto: NOVAS.ficha.acimaTeto, excIpoa: NOVAS.ficha.excIpoa} : null } : null;
   out.clientes = {};
   if (API) {
     const clis = [...new Set(API.PJF.map(f => API.canonPC(f.cliente)))];

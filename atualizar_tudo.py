@@ -50,6 +50,7 @@ ETAPAS_PROCESSO = [
     ("Preços contratuais minerados (F-LINK)", MINERADOS),
     ("Complementos de ipoa_teto e fluxos_servico (clientes F-LINK)",
      ["add_ipoa_teto_novos_clientes.py", "add_fluxos_servico_novos_clientes.py"]),
+    ("Ficha de Fluxo Geral 2026 (teto, frete, DP e serviços por item, mês a mês)", ["add_ficha_fluxo.py"]),
     ("Premissas, tetos, mercado e portos",
      ["add_premissas_planejamento.py", "add_tetos.py", "add_acessorias_mercado.py",
       "add_mercado.py", "add_precos_portos.py", "add_premissas_manobra_graos_ferti.py"]),

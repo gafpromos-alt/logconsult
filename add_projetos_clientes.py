@@ -439,6 +439,12 @@ def main():
     import connect_precos_minerados
     connect_precos_minerados.main()
 
+    # FICHA DE FLUXO GERAL 2026 (VLI, nov/2026): valores do mês de referência para os fluxos que
+    # o painel já tem (pelo item ou pela rota) e fluxos novos para as rotas e os clientes que
+    # ainda não tinham painel. Depende de add_ficha_fluxo.py (atualizar_tudo.py roda antes).
+    import connect_ficha_fluxo
+    connect_ficha_fluxo.main()
+
     # CONSISTÊNCIA FINAL (pente-fino lote 3, nov/2026) — sempre o ÚLTIMO passo que escreve em
     # projeto_fluxo_tarifas/projeto_acessorias_abertas: IPOA = acessórias ÷ frete, vigência
     # em formato único, duplicatas de rota, rotas sem tráfego. Ver docstring.
