@@ -2000,7 +2000,7 @@ try:
     ficha["itens"] = rec(_fr[["item", "cliente", "origem", "destino", "produto", "fam", "microrregiao", "mes_ref",
                               "status", "frete", "dp", "manobra_origem", "manobra_destino", "transbordo", "outros",
                               "acess", "total", "teto", "pct_teto", "ipoa", "mes_ini", "frete_ini", "acess_ini",
-                              "total_ini", "n_reclass", "acompanha", "frete_varia", "gap_med_rs_t", "alvo"]].round(4))
+                              "total_ini", "n_reclass", "acompanha", "frete_varia", "gap_med_rs_t", "alvo"]].round(6))
     # série mensal compacta por item: [mes, frete, dp, acess, total]
     for _it, _g in _fm.groupby("item"):
         ficha["serie"][int(_it)] = [[int(m), round(f, 2), round(d, 2), round(a, 2), round(t, 2)]

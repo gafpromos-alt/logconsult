@@ -121,6 +121,14 @@ def main():
 
     def melhor_da_rota(cli, o, d, prod):
         cands = [r for p, r in por_rota.get((cli, o, d), []) if mesmo_produto(p, prod)]
+        if not cands:
+            # prefixo de palavra com UM produto candidato na rota (mesma regra do volume):
+            # CMOC "ROCHA EYC IFA" é a "ROCHA FOSF SECA" da ficha. Nunca junta dois produtos.
+            alvo = norm_prod(prod)
+            prods = {norm_prod(p) for p, _ in por_rota.get((cli, o, d), [])}
+            pref = [p for p in prods if p.startswith(alvo + " ") or alvo.startswith(p + " ")]
+            if len(pref) == 1:
+                cands = [r for p, r in por_rota.get((cli, o, d), []) if norm_prod(p) == pref[0]]
         return sorted(cands, key=lambda r: -r[4]) if cands else []
 
     n_item = n_rota = n_novo = 0
@@ -145,6 +153,12 @@ def main():
         if escolhido:
             extra = ("outros itens atuais na rota: " + ", ".join(f"{r[0]} (R$ {r[4]:.2f})" for r in outros)) if outros else ""
             gravar(cur, cli, fluxo, escolhido, True, extra)
+            # a rota e o produto dos itens usados ficam "cobertos": sem isso a etapa seguinte criava
+            # um 2º fluxo para a mesma rota quando o nome do produto difere (CMOC "ROCHA" x
+            # "ROCHA FOSF SECA", achado na checagem de 19/nov/2026)
+            for r in [escolhido] + outros:
+                c_, o_, d_, p_, _ = ref[r[0]]
+                cobertas.add((c_, o_, d_, norm_prod(p_)))
         if rota:
             for p, r in por_rota.get((cli, rota[0], rota[1]), []):
                 if mesmo_produto(p, rota[2]):
