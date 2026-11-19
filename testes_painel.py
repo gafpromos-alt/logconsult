@@ -111,7 +111,33 @@ def testes_banco():
           if canon(c.replace(" (retroativo)", "")) != c.replace(" (retroativo)", "")]
     ok(not nc, f"cliente(s) fora do nome canônico: {nc}")
 
-    # 9. auditoria de volume não piorou
+    # 9. Ficha de Fluxo 2026: fluxo do painel = valores da ficha no item e mês citados; nenhuma
+    #    rota/produto da ficha em dois fluxos (exceto itens separados de propósito, "(ITEM n)")
+    if "ficha_fluxo_ref" in tabs:
+        MES = {m: i + 1 for i, m in enumerate(["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago",
+                                                "set", "out", "nov", "dez"])}
+        div, rotas = [], {}
+        for cli, fl, tar, fr, ac, teto, cob in q("""SELECT cliente, fluxo, tarifa_total, frete, acessorias, teto,
+                                                     cobertura FROM projeto_fluxo_tarifas
+                                                     WHERE cobertura LIKE 'ficha 2026%'"""):
+            m = re.match(r"ficha 2026 \(item (\d+), (\w+)/2026\)", cob or "")
+            if not m:
+                continue
+            it, mes = int(m[1]), MES[m[2]]
+            v = dict(q("""SELECT categoria, SUM(valor) FROM ficha_fluxo_servico_mes WHERE item=? AND mes=?
+                          GROUP BY categoria""", it, mes))
+            f, dp = v.get("frete", 0), v.get("dp", 0)
+            a = sum(x for k, x in v.items() if k not in ("frete", "dp"))
+            if abs(tar - (f + dp + a)) > 0.011 or abs(fr - f) > 0.011 or abs(ac - (a + dp)) > 0.011:
+                div.append((cli, fl, it))
+            if "(ITEM" not in fl.upper():
+                k = q("SELECT cliente, origem, destino, produto FROM ficha_fluxo_ref WHERE item=?", it)[0]
+                rotas.setdefault(k, []).append(fl)
+        ok(not div, f"{len(div)} fluxo(s) do painel diferente(s) da ficha no item citado: {div[:3]}")
+        dup = {k: v for k, v in rotas.items() if len(v) > 1}
+        ok(not dup, f"{len(dup)} rota(s) da ficha em mais de um fluxo: {list(dup.items())[:3]}")
+
+    # 10. auditoria de volume não piorou
     r = subprocess.run([sys.executable, "-c", "import audit_volumes; audit_volumes.audit()"],
                        cwd=BASE, capture_output=True, text=True)
     m = re.search(r"FAIL — (\d+) instancia", r.stdout)
