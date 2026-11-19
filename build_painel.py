@@ -1950,7 +1950,8 @@ try:
     _fs = q("""SELECT s.item, s.cliente, s.origem, s.destino, s.produto, s.servico, s.valor
                FROM ficha_fluxo_servico_mes s JOIN ficha_fluxo_ref r ON r.item=s.item AND r.mes_ref=s.mes
                WHERE r.status='atual'""")
-    _FAM = {"SOJA": "GRAOS", "MILHO": "GRAOS", "FARELO DE SOJA": "GRAOS", "FARELO DE MILHO": "GRAOS",
+    # farelo não é par de grão (decisão do sócio, 19/nov/2026: "usar comparativos de cada fluxo")
+    _FAM = {"SOJA": "GRAOS", "MILHO": "GRAOS", "FARELO DE SOJA": "FARELO", "FARELO DE MILHO": "FARELO",
             "FERTILIZANTES": "FERTILIZANTES", "ENXOFRE": "FERTILIZANTES", "ROCHA FOSF SECA": "FERTILIZANTES",
             "ROCHA FOS UMIDA": "FERTILIZANTES"}
     _fam = lambda p: _FAM.get(p, "SIDERURGIA" if p in ("PRO SIDERURGICO", "FIO MAQUINA", "FERRO GUSA",
@@ -2001,6 +2002,26 @@ try:
                               "status", "frete", "dp", "manobra_origem", "manobra_destino", "transbordo", "outros",
                               "acess", "total", "teto", "pct_teto", "ipoa", "mes_ini", "frete_ini", "acess_ini",
                               "total_ini", "n_reclass", "acompanha", "frete_varia", "gap_med_rs_t", "alvo"]].round(6))
+    # GRÃOS E FARELO MÊS A MÊS (decisão do sócio, 19/nov/2026): o ganho anual desses fluxos é a
+    # soma, mês a mês, de (preço do mês − par do mês) × volume do mês. O painel calcula (uma
+    # função só, ganhoMensal); aqui vão os insumos:
+    #   serie_svc[item] = [[mes, manobra origem, manobra destino, transbordo origem, frete+DP, acessórias sem DP]]
+    #   pares_mes["SERVIÇO|estação|classe|mês"] = [[cliente, valor mediano do cliente]] (>= R$ 0,50)
+    _gr = _fm[_fm["produto"].map(_fam).isin(["GRAOS", "FARELO"])]
+    ficha["serie_svc"] = {int(_it): [[int(m), round(mo, 2), round(md, 2), round(tb, 2), round(f + d, 2), round(a, 2)]
+                                     for m, mo, md, tb, f, d, a in zip(_g["mes"], _g["manobra_origem"], _g["manobra_destino"],
+                                                                       _g["transbordo"], _g["frete"], _g["dp"], _g["acess"])]
+                          for _it, _g in _gr.groupby("item")}
+    _pm = q("""SELECT cliente, origem, destino, produto, servico, mes, valor FROM ficha_fluxo_servico_mes
+               WHERE programado=0 AND valor >= 0.5
+                 AND servico IN ('MANOBRA ORIGEM','MANOBRA DESTINO','TRANSBORDO ORIGEM')""")
+    _pm["classe"] = _pm["produto"].map(_fam)
+    _pm = _pm[_pm["classe"].isin(["GRAOS", "FARELO"])].copy()
+    _pm["estacao"] = np.where(_pm["servico"].str.contains("ORIGEM"), _pm["origem"], _pm["destino"])
+    _pmc = _pm.groupby(["servico", "estacao", "classe", "mes", "cliente"])["valor"].median().reset_index()
+    ficha["pares_mes"] = {}
+    for (_sv, _es, _cl, _ms), _g in _pmc.groupby(["servico", "estacao", "classe", "mes"]):
+        ficha["pares_mes"][f"{_sv}|{_es}|{_cl}|{int(_ms)}"] = [[c, round(v, 2)] for c, v in zip(_g["cliente"], _g["valor"])]
     # série mensal compacta por item: [mes, frete, dp, acess, total]
     for _it, _g in _fm.groupby("item"):
         ficha["serie"][int(_it)] = [[int(m), round(f, 2), round(d, 2), round(a, 2), round(t, 2)]

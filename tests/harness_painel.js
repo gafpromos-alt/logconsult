@@ -124,6 +124,18 @@ const coleta = `
       } catch (e) { out.relatorio[c] = {ok: false, erro: String(e.message || e)}; }
     });
   }
+  // grãos/farelo mês a mês: volume somado dos 12 meses = volume 12m do resto do painel
+  out.mensal = {n: 0, volDiverge: 0};
+  if (API && API.ganhoMensal) {
+    API.PJF.filter(f => !API.isRetro(f.fluxo)).forEach(f => {
+      const cob = String(f.cobertura || ''); const m = cob.startsWith('ficha 2026 (item ') ? [null, parseInt(cob.slice(17), 10)] : null; const r = API.fluxoRota(f);
+      if (!m || !r || !r.origem) return;
+      const g = API.ganhoMensal(API.canonPC(f.cliente), +m[1], r.origem, r.destino, r.produto, 'med');
+      if (!g) return;
+      out.mensal.n++;
+      if (Math.abs(g.volKt - API.volKtRota(API.canonPC(f.cliente), r.origem, r.destino, r.produto)) > 0.001) out.mensal.volDiverge++;
+    });
+  }
   out.ranking = (typeof rankRows !== 'undefined' && Array.isArray(rankRows))
     ? rankRows.map(r => ({cliente: r.cliente, mod: r.anual_mod, otm: r.anual_otm})) : null;
   return JSON.stringify(out);

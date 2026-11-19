@@ -183,6 +183,9 @@ def testes_painel():
     for c, v in rel.items():
         ok(v.get("ok"), f"relatório de {c} falhou: {v.get('erro')}")
         ok(not v.get("vazamentos"), f"relatório de {c} cita outro cliente: {v.get('vazamentos')}")
+    mm = d.get("mensal") or {}
+    ok(mm.get("n", 0) > 100, f"cálculo mês a mês de grãos aplicado a só {mm.get('n', 0)} fluxos")
+    ok(mm.get("volDiverge", 1) == 0, f"{mm.get('volDiverge')} fluxo(s) com volume mês a mês ≠ volume 12m")
     rk = d.get("ranking")
     if ok(rk is not None, "ranking de captura não montou"):
         for r_ in rk:

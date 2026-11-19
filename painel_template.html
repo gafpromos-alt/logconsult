@@ -2544,6 +2544,10 @@ if(D.comparativo && D.comparativo.tarifas){
   // ESPECÍFICA (exclui o fallback universal 'DEMAIS PRODUTOS', que juntaria tudo que não bate
   // em nenhuma família conhecida).
   function mesmaFamilia(produtoA, produtoB){
+    // farelo só é par de farelo (decisão do sócio, 19/nov/2026: "selecta tem grãos e farelo, usar
+    // comparativos de cada fluxo"). Antes SOJA e FARELO caíam na mesma família 'GRAOS E FARELOS'.
+    const fa=/FARELO/.test(String(produtoA||'').toUpperCase()), fb=/FARELO/.test(String(produtoB||'').toUpperCase());
+    if(fa!==fb) return false;
     const a=candidatosMercadoria(produtoA).filter(c=>c!=='DEMAIS PRODUTOS');
     const b=candidatosMercadoria(produtoB).filter(c=>c!=='DEMAIS PRODUTOS');
     if(!a.length||!b.length) return true;   // produto não classificado em nenhuma família — não filtra
@@ -4132,20 +4136,25 @@ if(D.comparativo && D.comparativo.tarifas){
       // usa o ganho SIMULADO manualmente como potencial, pra Consultoria/Ganho potencial refletirem
       // a manobra que o usuário abriu (senão ficam R$0 mesmo com cenário simulado).
       if(potOtm===0 && potReal===0 && ganhoRsT>0){ potOtm=potReal=ganhoRsT; }
+      // grãos e farelo sem simulação manual: valores anuais pelo mês a mês (mesma função do resumo e
+      // do card do cliente, ganhoMensalFluxo) — senão a mesma tela mostraria dois números
+      const gmO=ganhoMensalFluxo(f,'min'), gmM=gmO?ganhoMensalFluxo(f,'med'):null;
+      const anoCen=gmO?gmO.anual:Math.max(0,ganhoRsT)*volKt*1000;
+      const anoOtm=gmO?gmO.anual:potOtm*volKt*1000, anoMod=gmM?gmM.anual:potReal*volKt*1000;
       const el=document.getElementById('pcTetoRes_'+fi);
       if(el) kpiRow('pcTetoRes_'+fi,[
         ['Manobras simuladas','R$ '+N1(sim)+'/t','itens abertos — eram R$ '+N1(aberturaTot)+'/t',''],
-        ['Ganho do cenário','R$ '+N1(Math.max(0,ganhoRsT))+'/t','× '+Math.round(volKt)+' kt/ano',''],
+        ['Ganho do cenário','R$ '+N1(gmO?gmO.rsT:Math.max(0,ganhoRsT))+'/t',(gmO?'média mês a mês · ':'× ')+Math.round(volKt)+' kt/ano',''],
         ['Tarifa simulada','R$ '+N1(tarifaSim)+'/t', (f.frete+dpDe(f))>f.teto?'frete + DP R$ '+N1(f.frete+dpDe(f)-f.teto)+'/t acima do teto':'frete + DP dentro do teto ANTT',''],
         ['IPOA simulado', (f.frete+dpDe(f))>0?Math.round(acessSim/(f.frete+dpDe(f))*100)+'%':'—','sem DP, sobre frete + DP · ref. '+ipoaRefLbl,''],
-        ['Ganho anual do cenário', BRLmi(Math.max(0,ganhoRsT)*volKt*1000),'/ano neste fluxo',''],
+        ['Ganho anual do cenário', BRLmi(anoCen), gmO?'/ano, soma mês a mês (preço e volume de cada mês)':'/ano neste fluxo',''],
         // ganhos de consultoria (success fee) — só fora do modo apresentação (dado interno, não vai pro cliente)
         ...(pcPresent?[
-          ['Ganho potencial — otimista', BRLmi(potOtm*volKt*1000),'/ano · manobra na mais barata de par VLI',''],
-          ['Ganho potencial — moderado', BRLmi(potReal*volKt*1000),'/ano · manobra na mediana dos pares VLI',''],
+          ['Ganho potencial — otimista', BRLmi(anoOtm),'/ano · manobra na mais barata de par VLI',''],
+          ['Ganho potencial — moderado', BRLmi(anoMod),'/ano · manobra na mediana dos pares VLI',''],
         ]:[
-          ['Consultoria — otimista', BRLmi(potOtm*volKt*1000*pcFee/100), pcFee+'% de êxito · sobre potencial de '+BRLmi(potOtm*volKt*1000)+'/ano (manobra na mais barata de par VLI)','hl'],
-          ['Consultoria — realista', BRLmi(potReal*volKt*1000*pcFee/100), pcFee+'% de êxito · sobre potencial de '+BRLmi(potReal*volKt*1000)+'/ano (manobra na mediana dos pares VLI)','hl'],
+          ['Consultoria — otimista', BRLmi(anoOtm*pcFee/100), pcFee+'% de êxito · sobre potencial de '+BRLmi(anoOtm)+'/ano (manobra na mais barata de par VLI)','hl'],
+          ['Consultoria — realista', BRLmi(anoMod*pcFee/100), pcFee+'% de êxito · sobre potencial de '+BRLmi(anoMod)+'/ano (manobra na mediana dos pares VLI)','hl'],
         ]),
       ]);
     });
@@ -4527,11 +4536,66 @@ if(D.comparativo && D.comparativo.tarifas){
     const sim=it.reduce((x,a)=>x+simDe(a),0);
     return Math.max(0, real-sim);
   }
+  // ---- GRÃOS E FARELO MÊS A MÊS (decisão do sócio, 19/nov/2026) ----
+  // Para soja, milho e farelos o preço muda todo mês (safra). Ganho anual = soma, mês a mês, de
+  // (manobra/transbordo do item no mês − par do mês) × volume do mês. Par do mês = outros clientes
+  // da MESMA classe (grãos com grãos, farelo com farelo), mesma estação e mesmo serviço, na Ficha de
+  // Fluxo 2026; 'min' = cliente mais barato, 'med' = mediana dos clientes. Volume do mês = os 12
+  // meses da mesma janela de pcUlt12Sum (o total bate com o volume 12m do resto do painel); preço do
+  // mês = 2026 no mesmo mês do calendário (sem preço naquele mês, o mês mais próximo do mesmo item).
+  // (lido dentro das funções: elas são hoisted e podem rodar antes desta linha — evita TDZ)
+  function classeGrao(p){ const s=pcNormFull(p); return /^FARELO/.test(s)?'FARELO':/^(SOJA|MILHO)\b/.test(s)?'GRAOS':null; }
+  function volMensal12(anosMap){
+    if(!anosMap) return null;
+    let anc=-1; Object.keys(anosMap).forEach(a=>Object.keys(anosMap[a]).forEach(m=>{ const i=+a*12+(+m); if(i>anc) anc=i; }));
+    if(anc<0) return null;
+    const G=pcAncoraGlobal(); const out={};
+    if(G>0&&anc<=G-12) return out;
+    for(let i=0;i<12;i++){ const idx=anc-i, a=Math.floor((idx-1)/12), m=idx-a*12, v=(anosMap[a]||{})[m]; if(v!=null) out[m]=(out[m]||0)+v; }
+    return out;
+  }
+  function ganhoMensal(cli, item, o, d, produto, sel){
+    const _FIS=(D.ficha&&D.ficha.serie_svc)||{}, _FIP=(D.ficha&&D.ficha.pares_mes)||{};
+    const cls=classeGrao(produto), sv=_FIS[item];
+    if(!cls||!sv||!sv.length||!o||!d) return null;
+    const vm=volMensal12(pcVolLookup(cli,o,d,produto))||{};
+    const porMes={}; sv.forEach(r=>{ porMes[r[0]]=r; }); const ms=sv.map(r=>r[0]);
+    let anual=0, ipoaExc=0, volT=0; const meses=[];
+    for(let m=1;m<=12;m++){
+      const vol=vm[m]||0;
+      const r=porMes[m]||porMes[ms.reduce((b,x)=>Math.abs(x-m)<Math.abs(b-m)?x:b, ms[0])];
+      const mp=r[0]; let gap=0;
+      [['MANOBRA ORIGEM',r[1],o],['MANOBRA DESTINO',r[2],d],['TRANSBORDO ORIGEM',r[3],o]].forEach(([srv,v,est])=>{
+        if(!(v>0)) return;
+        const lst=(_FIP[srv+'|'+est+'|'+cls+'|'+mp]||[]).filter(x=>x[0]!==cli).map(x=>x[1]);
+        if(!lst.length) return;   // sem par naquele mês: sem ganho (zero honesto)
+        const ref=sel==='min'?Math.min(...lst):mediana(lst);
+        gap+=Math.max(0, v-ref);
+      });
+      anual+=gap*vol; ipoaExc+=Math.max(0, r[5]-IPOA_REF*r[4])*vol; volT+=vol;
+      meses.push({mes:m, mesPreco:mp, vol, gap});
+    }
+    return {anual, ipoaExc, volKt:volT/1000, rsT:volT>0?anual/volT:0, meses};
+  }
+  // fluxo do Painel do Cliente: só sem simulação manual, só fluxo de grão/farelo com item da ficha
+  function ganhoMensalFluxo(f, sel){
+    const cfg=st(canonPC(f.cliente)).teto[fkey(f)];
+    if(cfg&&((cfg.items&&Object.keys(cfg.items).length)||cfg.volKt!=null)) return null;
+    if(f.unidade==='R$/contêiner') return null;
+    const m=String(f.cobertura||'').match(/^ficha 2026 \(item (\d+)/); if(!m) return null;
+    const r=fluxoRota(f); if(!r||!r.origem) return null;
+    return ganhoMensal(canonPC(f.cliente), +m[1], r.origem, r.destino, r.produto, sel);
+  }
   function ganhoAcessCliente(cliArg){
     const cli=cliArg!=null?cliArg:pcCli;
     const pj=pjDo(cli), atuais=pj.filter(f=>!isRetro(f.fluxo));
     let otm=0, mod=0; const porFluxo={};   // fkey -> {otm, mod} em R$/ano (alimenta a coluna "Ganho projetado" do resumo)
     atuais.forEach(f=>{
+      const gMin=ganhoMensalFluxo(f,'min');
+      if(gMin){ const gMed=ganhoMensalFluxo(f,'med');
+        otm+=gMin.anual; mod+=gMed.anual;
+        porFluxo[fkey(f)]={otm:gMin.anual, mod:gMed.anual, otmRsT:gMin.rsT, modRsT:gMed.rsT, mensal:true};
+        return; }
       const pOtm=ganhoFluxo(f,'min'), pMed=ganhoFluxo(f,'med'), volKt=fluxoVolKtGanho(f);
       otm+=pOtm*volKt*1000; mod+=pMed*volKt*1000;
       porFluxo[fkey(f)]={otm:pOtm*volKt*1000, mod:pMed*volKt*1000, otmRsT:pOtm, modRsT:pMed};
@@ -4555,7 +4619,8 @@ if(D.comparativo && D.comparativo.tarifas){
       // pente-fino nov/2026: abas Reajustes/Vencimentos e Pendências de captura usam as MESMAS
       // funções de ganho e volume do card do cliente (um número, uma função)
       ganhoAcessCliente, fluxoVolKtGanho, seloRota, reajDoFluxo,
-      volKtRota:(cli,o,d,prod)=>{ const v=pcUlt12Sum(pcVolLookup(cli,o,d,prod)); return v!=null?v/1000:0; }};
+      volKtRota:(cli,o,d,prod)=>{ const v=pcUlt12Sum(pcVolLookup(cli,o,d,prod)); return v!=null?v/1000:0; },
+      ganhoMensal, classeGrao};
   }
   _pcExposeAPI();
 
@@ -7925,9 +7990,13 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
     const volRota=r=>{ const k=chave(r); if(!(k in volCache)){ try{ volCache[k]=API&&API.volKtRota?API.volKtRota(r.cliente,r.origem,r.destino,r.produto):0; }catch(e){ volCache[k]=0; } } return volCache[k]; };
     const rows=FI.itens.map(r=>{
       const base=(r.frete||0)+(r.dp||0);
-      const vol=r.status==='atual'?volRota(r)/(nItens[chave(r)]||1):0;
-      const excIpoa=Math.max(0,(r.acess||0)-IPOA_REF*base);
-      return {...r, base, vol, rota:r.origem+'→'+r.destino, excIpoaAno:excIpoa*vol*1000, gapAno:(r.gap_med_rs_t||0)*vol*1000,
+      const nIt=nItens[chave(r)]||1;
+      const vol=r.status==='atual'?volRota(r)/nIt:0;
+      // grãos e farelo: mês a mês (mesma função do Painel do Cliente); demais: preço do mês de referência
+      const gm=r.status==='atual'&&API&&API.ganhoMensal?API.ganhoMensal(r.cliente,r.item,r.origem,r.destino,r.produto,'med'):null;
+      const excIpoaAno=gm?gm.ipoaExc/nIt:Math.max(0,(r.acess||0)-IPOA_REF*base)*vol*1000;
+      const gapAno=gm?gm.anual/nIt:(r.gap_med_rs_t||0)*vol*1000;
+      return {...r, base, vol, rota:r.origem+'→'+r.destino, excIpoaAno, gapAno, mensal:!!gm,
         dTotal:r.total_ini>0&&r.mes_ini<r.mes_ref?(r.total/r.total_ini-1):null,
         dFrete:r.frete_ini>0&&r.mes_ini<r.mes_ref?(r.frete/r.frete_ini-1):null,
         dAcess:r.acess_ini>0&&r.mes_ini<r.mes_ref?(r.acess/r.acess_ini-1):null,
