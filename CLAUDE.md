@@ -41,6 +41,16 @@ esses arquivos.
   usa `realizado=1`**, nunca `panorama LIKE ...` com mês fixo. Orçamentos e BP ficam em
   `vli_pnl_orcamento` (nunca somar com `vli_pnl`). No P&L o DP vem dentro de `rec_fr`
   (`rec_dp` quase sempre zero): "frete" do P&L = frete + DP.
+- **Alavancas regulatórias** (`add_alavancas.py`, 23/nov/2026; roda depois de `add_projetos_clientes.py`):
+  as 30 inconsistências da VLI frente à regulação em `alavanca_catalogo` (grupo, norma, fonte, tipo,
+  evidência), `alavanca_linha` (itens da ficha com R$/t acima da referência, no mês de referência DE
+  CADA ITEM; grãos e farelo levam a série mensal do excesso) e `alavanca_cliente` (R$ do P&L e do
+  orçamento, contagens). O R$/ano das linhas é calculado no painel (aba Alavancas Regulatórias) com
+  `PC_API.volKtRota`/`volMensalRota`; as alavancas 6, 11, 12 e 14 leem `NOVAS.ficha`, a 26 lê o porto e
+  a 29 lê `NOVAS.venc` (um número, uma função). Faixa da manobra (8): menor faixa paga por 2+ clientes
+  da mesma classe e ferrovia, farelo só com farelo. Bloco `#pcAlavancas` no Painel do Cliente some no
+  modo apresentação e não entra no relatório do cliente (usa P&L e ficha, internos da VLI). Texto sem
+  travessão (teste). Normas: nunca Res. 3.695/2011 nem art. 35 da Lei 10.233.
 - `gerar_indice_videos.py` gera `09_Fotos/_indice_videos.csv` (diário de captura: vídeo →
   status/cliente/script). Rodar depois de minerar vídeos novos.
 - Regras de negócio que definem os números: `../06_Corporate_Memory/Regras_e_Decisoes_LogConsultOS.md`.

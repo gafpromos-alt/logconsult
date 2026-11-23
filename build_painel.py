@@ -2156,6 +2156,35 @@ try:
 except Exception as _e:
     print("  ! orçamento 2027 indisponível no painel:", _e)
 
+# ---- 7) Alavancas regulatórias (add_alavancas.py, 23/nov/2026) ----
+# Catálogo das 30 alavancas, linhas de item da Ficha 2026 (R$/t acima da referência; o R$/ano é
+# calculado no painel com a função de volume do Painel do Cliente) e valores por cliente do P&L e
+# do orçamento. Linhas vão compactas (colunas + listas) e a série mensal de grãos já como lista.
+alavancas = {"catalogo": [], "linhas": {"cols": [], "rows": []}, "clientes": [], "grupos": {}, "mes_ref": None}
+try:
+    if q("SELECT COUNT(*) n FROM sqlite_master WHERE name='alavanca_catalogo'")["n"].iloc[0]:
+        _ac = q("SELECT * FROM alavanca_catalogo ORDER BY id")
+        _cat = rec(_ac)
+        for _c in _cat:
+            _c["tabela"] = json.loads(_c["tabela"]) if _c.get("tabela") else None
+        alavancas["catalogo"] = _cat
+        alavancas["grupos"] = {g: n for g, n in zip(_ac["grupo"], _ac["grupo_nome"])}
+        _al = q("""SELECT alav, item, cliente, origem, destino, produto, servico, ferrovia, cobrado, referencia,
+                          excesso, detalhe, serie, no_mes_ref FROM alavanca_linha""")
+        _cols = list(_al.columns)
+        _rows = []
+        for _r in _al.itertuples(index=False):
+            _d = [clean(v) for v in _r]
+            _d[_cols.index("serie")] = json.loads(_r.serie) if isinstance(_r.serie, str) else None
+            _rows.append(_d)
+        alavancas["linhas"] = {"cols": _cols, "rows": _rows}
+        alavancas["clientes"] = rec(q("SELECT alav, cliente, valor, n, detalhe FROM alavanca_cliente"))
+        _mr = q("SELECT MAX(mes_ref) m FROM ficha_fluxo_ref WHERE status='atual'")["m"].iloc[0]
+        alavancas["mes_ref"] = (["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"][int(_mr) - 1]
+                                + "/2026") if _mr else None
+except Exception as _e:
+    print("  ! alavancas regulatórias indisponíveis no painel:", _e)
+
 # ---- 4) Rotas inativas e unidade no Painel do Cliente ----
 # rota com volume na base mas NENHUM nos 12 meses da janela (volume_hist) nem no P&L realizado
 # desde jan/2025 é "rota inativa": exibir como ativa (com ganho/ano) era a inconsistência.
@@ -2235,6 +2264,7 @@ data = {
   "porto_servicos": porto_servicos,
   "ficha": ficha,
   "orcamento": orcamento,
+  "alavancas": alavancas,
 }
 
 # sem mascara de codinome — nome real da concessionária (VLI) exibido diretamente

@@ -321,6 +321,7 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
       <button data-tab="ficha">Ficha de Fluxo 2026</button>
       <button data-tab="reajustes">Reajustes e Vencimentos</button>
       <button data-tab="portoservicos">Porto e Serviços Acessórios</button>
+      <button data-tab="alavancas">Alavancas Regulatórias</button>
       <button data-tab="regulatorio">Regulatório</button>
       <div class="navgroup">Mercado &amp; Operação</div>
       <button data-tab="mercado">Mercado</button>
@@ -450,6 +451,7 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
         </div>
       </div>
       <div id="pcGanhosPotenciais"></div>
+      <div id="pcAlavancas"></div>
       <div id="pcTabTeto"></div>
       <div id="pcTabIso" style="display:none"></div>
       <div id="pcTabRetro" style="display:none"></div>
@@ -1343,6 +1345,31 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
         <span class="muted" id="orCount"></span>
       </div>
       <div class="tbl-wrap freeze-cli" style="max-height:560px"><table id="tOrc"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ ALAVANCAS REGULATÓRIAS (23/nov/2026) ============ -->
+  <section id="alavancas">
+    <div class="kpis" id="alKpis" style="margin-bottom:12px"></div>
+    <div class="panel">
+      <h2>Alavancas regulatórias contra a VLI <span class="h-hint" id="alRef"></span></h2>
+      <div class="desc">As 30 inconsistências da VLI frente à regulação, com norma, evidência e valor. <b>R$/ano</b> = R$/t acima da referência vezes o volume real dos últimos 12 meses, pela mesma função de volume do Painel do Cliente (grãos e farelo mês a mês). Alavancas do P&amp;L trazem o período no próprio valor. <b>Os valores não se somam</b>: várias alavancas medem o mesmo dinheiro por ângulos diferentes. Ficha de Fluxo, P&amp;L e orçamento são documentos internos da VLI e orientam a estratégia; a peça de cada cliente usa o F-LINK e o contrato dele, a tabela publicada e documentos obtidos por pedido formal. Clique numa alavanca para ver clientes e itens.</div>
+      <div class="controls">
+        <span class="seg" id="alGrupos"></span>
+        <select id="alCli" class="mono"></select>
+        <input type="search" id="alSearch" placeholder="Buscar alavanca / norma…">
+        <span class="muted" id="alCount"></span>
+      </div>
+      <div class="tbl-wrap" style="max-height:640px"><table id="tAlav"></table></div>
+    </div>
+    <div class="panel" id="alDetPanel" style="display:none">
+      <h2 id="alDetTit"></h2>
+      <div id="alDet"></div>
+      <div id="alDetCliWrap"><div class="sec-h">Por cliente <span class="h-hint" id="alDetCliCount"></span></div>
+        <div class="tbl-wrap freeze-cli" style="max-height:420px"><table id="tAlavCli"></table></div></div>
+      <div id="alDetLinWrap"><div class="sec-h">Itens da Ficha de Fluxo 2026</div>
+        <div class="controls"><input type="search" id="alLinSearch" placeholder="Buscar cliente / rota / produto / item…" style="min-width:240px"><span class="muted" id="alLinCount"></span></div>
+        <div class="tbl-wrap freeze-cli" style="max-height:560px"><table id="tAlavLin"></table></div></div>
     </div>
   </section>
 
@@ -4632,7 +4659,10 @@ if(D.comparativo && D.comparativo.tarifas){
       // funções de ganho e volume do card do cliente (um número, uma função)
       ganhoAcessCliente, fluxoVolKtGanho, seloRota, reajDoFluxo,
       volKtRota:(cli,o,d,prod)=>{ const v=pcUlt12Sum(pcVolLookup(cli,o,d,prod)); return v!=null?v/1000:0; },
-      ganhoMensal, classeGrao};
+      ganhoMensal, classeGrao,
+      // aba Alavancas (23/nov/2026): grãos e farelo mês a mês com a MESMA janela de ganhoMensal
+      volMensalRota:(cli,o,d,prod)=>volMensal12(pcVolLookup(cli,o,d,prod))||{},
+      cliAtual:()=>pcCli, apresentacao:()=>pcPresent};
   }
   _pcExposeAPI();
 
@@ -4938,6 +4968,7 @@ if(D.comparativo && D.comparativo.tarifas){
   }
   function pcRender(){
     _anonMap=new Map(); _anonN=0; pcChips();
+    if(window.pcRenderAlav) window.pcRenderAlav(pcCli);   // alavancas regulatórias do cliente (aba Alavancas)
     const temPJF=pjDo(pcCli).length>0;
     if(!temPJF){
       document.getElementById('pcGanhosPotenciais').innerHTML='';
@@ -7712,7 +7743,8 @@ const NOVAS={};   // resumos reaproveitados pela trilha de insights (RAIL)
     NOVAS.venc={n:rows.length, vencidos:rows.filter(r=>r.sit==='vencido').length,
       ate12:rows.filter(r=>r.sit==='até 12 meses').length, semData:rows.filter(r=>r.sit==='sem data').length,
       ganhoA:rows.filter(r=>r.prio==='A').reduce((s,r)=>s+r.mod,0), nA:rows.filter(r=>r.prio==='A').length,
-      topA:rows.filter(r=>r.prio==='A').sort((a,b)=>b.mod-a.mod)[0]||null};
+      topA:rows.filter(r=>r.prio==='A').sort((a,b)=>b.mod-a.mod)[0]||null,
+      porCli:rows.reduce((o,r)=>{ const x=o[r.cliente]=o[r.cliente]||{venc:0,semData:0,ate12:0}; if(r.sit==='vencido') x.venc++; else if(r.sit==='sem data') x.semData++; else if(r.sit==='até 12 meses') x.ate12++; return o; },{})};
     const cols=[
       {k:'score',h:'Prior.',num:1,title:'A: vencido ou ≤ 6 meses com ganho · B: ≤ 12 meses · C: mais distante',
         f:(v,r)=>`<b style="${r.prio==='A'?'color:var(--bad)':r.prio==='B'?'color:var(--warn)':''}">${r.prio}</b>`},
@@ -8027,6 +8059,10 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
       acomp:atuais.filter(r=>r.acompanha).length, varia,
       topExc:[...atuais].sort((a,b)=>b.excIpoaAno-a.excIpoaAno)[0]||null,
       topGapCli:Object.entries(atuais.reduce((o,r)=>{o[r.cliente]=(o[r.cliente]||0)+r.gapAno;return o;},{})).sort((a,b)=>b[1]-a[1]).slice(0,3)};
+    // por cliente (aba Alavancas Regulatórias lê daqui: um número, uma função)
+    NOVAS.ficha.porCli={};
+    atuais.forEach(r=>{ const o=NOVAS.ficha.porCli[r.cliente]=NOVAS.ficha.porCli[r.cliente]||{exc:0,gap:0,nIpoa:0,nGap:0,acomp:0,n:0};
+      o.n++; o.exc+=r.excIpoaAno; o.gap+=r.gapAno; if(r.ipoa>IPOA_REF) o.nIpoa++; if(r.gapAno>0) o.nGap++; if(r.acompanha) o.acomp++; });
     const N=NOVAS.ficha;
     const kpi=(l,v,sub,st)=>`<div class="kpi"${st?` style="${st}"`:''}><div class="lbl">${l}</div><div class="val">${v}${sub?` <small>${sub}</small>`:''}</div></div>`;
     const destaque='border-color:color-mix(in oklab,var(--amber) 40%,transparent);background:var(--amber-bg)';
@@ -8167,6 +8203,206 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
   }catch(e){ console.error('Orçamento 2027:', e); }
 })();
 
+/* ---------- 9) Alavancas regulatórias (23/nov/2026) ----------
+   Pedido do sócio: "busque mais alavancas de valor para consultoria junto aos clientes, ou seja,
+   inconsistências da VLI perante regulações atuais" e depois "pode implantar tudo". Catálogo,
+   linhas de item e valores por cliente vêm de add_alavancas.py. R$/ano das linhas de item =
+   excesso R$/t × volume pela MESMA função do Painel do Cliente (PC_API.volKtRota); grãos e
+   farelo mês a mês (PC_API.volMensalRota, mesma regra de ganhoMensal: mês sem preço usa o mês
+   mais próximo do item). Alavancas que já têm número em outra aba (IPOA e pares da Ficha,
+   porto, contratos) leem o número daquela aba: um número, uma função. */
+(function(){
+  try{
+    const AL=D.alavancas||{catalogo:[]}; if(!AL.catalogo||!AL.catalogo.length) return;
+    const API=window.PC_API||null, FI=D.ficha||{itens:[]}, GRP=AL.grupos||{};
+    const n2=v=>v==null||!isFinite(v)?'n/d':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const nint=v=>Math.round(v||0).toLocaleString('pt-BR');
+    const SLBL={'BALDEACAO':'baldeação','DEPRECIACACAO DE VAGAO':'depreciação de vagão','TRANSBORDO DESTINO':'transbordo de destino',
+      'TRANSBORDO ORIGEM':'transbordo de origem','MANOBRA ORIGEM':'manobra de origem','MANOBRA DESTINO':'manobra de destino',
+      'MANOBRA CONEXAO CHEIO':'manobra de conexão (cheio)','DIREITO DE PASSAGEM':'direito de passagem','ACESSORIAS DA FERROVIA':'acessórias da ferrovia',
+      'MANOBRA E TRANSBORDO':'manobra e transbordo','FRETE + DP':'frete + DP','CARGA':'carga','DESCARGA':'descarga'};
+    const slbl=s=>SLBL[s]||String(s||'').toLowerCase();
+    // volume por item: igual à aba Ficha (volume da rota ÷ itens do mesmo cliente × rota × produto)
+    const chave=(c,o,d,p)=>c+'|'+o+'|'+d+'|'+p;
+    const nIt={}; (FI.itens||[]).filter(r=>r.status==='atual').forEach(r=>{ const k=chave(r.cliente,r.origem,r.destino,r.produto); nIt[k]=(nIt[k]||0)+1; });
+    const cK={}, cM={};
+    const volKt=(c,o,d,p)=>{ const k=chave(c,o,d,p); if(!(k in cK)){ try{ cK[k]=API&&API.volKtRota?API.volKtRota(c,o,d,p):0; }catch(e){ cK[k]=0; } } return cK[k]; };
+    const volMes=(c,o,d,p)=>{ const k=chave(c,o,d,p); if(!(k in cM)){ try{ cM[k]=API&&API.volMensalRota?API.volMensalRota(c,o,d,p):{}; }catch(e){ cM[k]={}; } } return cM[k]; };
+    function anual(l){
+      const n=nIt[chave(l.cliente,l.origem,l.destino,l.produto)]||1;
+      if(l.serie&&l.serie.length){
+        const por={}; l.serie.forEach(x=>{ por[x[0]]=x[1]; }); const ms=l.serie.map(x=>x[0]);
+        const vm=volMes(l.cliente,l.origem,l.destino,l.produto);
+        let rs=0, vt=0;
+        for(let m=1;m<=12;m++){ const vol=vm[m]||0; if(!vol) continue;
+          const mp=(m in por)?m:ms.reduce((b,x)=>Math.abs(x-m)<Math.abs(b-m)?x:b, ms[0]);
+          rs+=(por[mp]||0)*vol; vt+=vol; }
+        return {rs:rs/n, vol:vt/1000/n, mensal:true};
+      }
+      const kt=volKt(l.cliente,l.origem,l.destino,l.produto)/n;
+      return {rs:(l.excesso||0)*kt*1000, vol:kt, mensal:false};
+    }
+    const LC=(AL.linhas&&AL.linhas.cols)||[];
+    const linhas=((AL.linhas&&AL.linhas.rows)||[]).map(a=>{ const o={}; LC.forEach((c,i)=>{ o[c]=a[i]; }); return o; });
+    linhas.forEach(l=>{ const a=anual(l); l.rsAno=a.rs; l.volKt=a.vol; l.mensal=a.mensal; l.rota=l.origem+'→'+l.destino; });
+    const linPor={}; linhas.forEach(l=>{ (linPor[l.alav]=linPor[l.alav]||[]).push(l); });
+    const cliPor={}; (AL.clientes||[]).forEach(c=>{ (cliPor[c.alav]=cliPor[c.alav]||[]).push(c); });
+    const F=NOVAS.ficha||{}, FPC=F.porCli||{}, V=NOVAS.venc||{}, VPC=V.porCli||{};
+    const porto=((D.porto_servicos&&D.porto_servicos.porto)||[]).filter(r=>r.n_pares>=2);
+    const UNC={4:'itens',7:'linhas',11:'itens',12:'trocas',15:'linhas',22:'itens',29:'fluxos'};
+    const res=AL.catalogo.map(c=>{
+      const porCli={}; let total=null, n=0;
+      const add=(cli,v,k,det)=>{ const o=porCli[cli]=porCli[cli]||{v:null,n:0,det:''}; if(v!=null&&isFinite(v)) o.v=(o.v||0)+v; o.n+=k||0; if(det&&!o.det) o.det=det; };
+      const L=linPor[c.id]||[];
+      if(c.tipo==='linhas'){ L.forEach(l=>add(l.cliente,l.rsAno,1)); total=L.reduce((s,l)=>s+(l.rsAno||0),0); n=L.length; }
+      else if(c.tipo==='evidencia'){ L.forEach(l=>add(l.cliente,null,1,c.id===4?null:l.detalhe)); n=L.length; }
+      else if(c.tipo==='cliente'||c.tipo==='contagem'){ const X=cliPor[c.id]||[]; X.forEach(x=>add(x.cliente,x.valor,x.n||0,x.detalhe));
+        if(c.tipo==='cliente') total=X.reduce((s,x)=>s+(x.valor||0),0); n=X.reduce((s,x)=>s+(x.n||0),0); }
+      else if(c.tipo==='ficha_ipoa'){ Object.entries(FPC).forEach(([k,o])=>{ if(o.exc>0) add(k,o.exc,o.nIpoa,`${o.nIpoa} de ${o.n} itens acima de 24,8%`); }); total=F.excIpoa||0; n=F.acimaIpoa||0; }
+      else if(c.tipo==='ficha_gap'){ Object.entries(FPC).forEach(([k,o])=>{ if(o.gap>0) add(k,o.gap,o.nGap,`${o.nGap} itens acima da mediana dos pares`); }); total=F.gap||0; n=Object.values(FPC).reduce((s,o)=>s+(o.nGap||0),0); }
+      else if(c.tipo==='ficha_acomp'){ Object.entries(FPC).forEach(([k,o])=>{ if(o.acomp>0) add(k,null,o.acomp,`${o.acomp} de ${o.n} itens com a manobra variando junto com o frete`); }); n=F.acomp||0; }
+      else if(c.tipo==='ficha_troca'){ (FI.reclass||[]).forEach(r=>add(r.cliente,null,1)); Object.values(porCli).forEach(o=>{ o.det=`${o.n} meses com troca entre frete e acessória`; }); n=(FI.reclass||[]).length; }
+      else if(c.tipo==='porto'){ porto.forEach(r=>{ if(r.oport_mi>0) add(r.cliente,r.oport_mi*1e6,1,`${r.produto} ${r.uf}: R$ ${N1(r.rs_t)}/t contra R$ ${N1(r.min_pares)}/t do menor par`); });
+        total=porto.reduce((s,r)=>s+(r.oport_mi||0),0)*1e6; n=porto.filter(r=>r.oport_mi>0).length; }
+      else if(c.tipo==='contratos'){ Object.entries(VPC).forEach(([k,o])=>{ const t=(o.venc||0)+(o.semData||0); if(t>0) add(k,null,t,`${o.venc} vencidos, ${o.semData} sem data final`); }); n=(V.vencidos||0)+(V.semData||0); }
+      // detalhe por cliente das alavancas de item: maior linha, contagem e falta de volume
+      if(c.tipo==='linhas'||c.tipo==='evidencia'){
+        const porC={}; L.forEach(l=>{ (porC[l.cliente]=porC[l.cliente]||[]).push(l); });
+        Object.entries(porC).forEach(([k,ls])=>{ const o=porCli[k];
+          if(c.tipo==='linhas'){
+            const top=ls.reduce((b,l)=>(l.rsAno||0)>(b.rsAno||0)?l:b, ls[0]);
+            o.det=(o.v>0?'':'sem volume nos últimos 12 meses; ')+`${nint(ls.length)} linha(s); maior: ${String(top.produto||'').toLowerCase()} ${top.rota}, ${slbl(top.servico)} R$ ${n2(top.excesso)}/t`;
+          } else if(c.id===4){
+            let mud=0, up=0; ls.forEach(l=>{ const m=String(l.detalhe||'').match(/^(\d+) mudanças em \d+ meses, (\d+) aumentos/); if(m){ mud+=+m[1]; up+=+m[2]; } });
+            o.det=`${nint(mud)} mudanças de preço em ${nint(ls.length)} itens, ${nint(up)} aumentos`;
+          } else if(c.id===22){
+            const n90=ls.filter(l=>l.referencia>0&&l.cobrado/l.referencia>=0.9).length;
+            o.det=`${nint(ls.length)} itens com frete em duas ferrovias; ${n90} a 90% ou mais do teto`;
+          } else if(c.id===15){
+            o.det=`${nint(ls.length)} linha(s) a menos de um quarto da mediana da estação`;
+          }
+        });
+      }
+      return {...c, total, n, nCli:Object.keys(porCli).length, porCli, L};
+    });
+    const UN={rs_ano:'/ano', rs_periodo:' no período', rs_2025:' em 2025'};
+    const ehRS=r=>r.medida in UN;
+    const fmtV=(r,v,k)=>r.medida==='nenhuma'?'<span class="muted">ver evidência</span>'
+      :ehRS(r)?(v>0?`<b>${BRLmi(v)}</b><span class="muted">${UN[r.medida]}</span>`:'n/d')
+      :(k>0?`${nint(k)} <span class="muted">${UNC[r.id]||'itens'}</span>`:'n/d');
+    const clientes=[...new Set(res.flatMap(r=>Object.keys(r.porCli)))].sort();
+    // "alcançados" sem a 28 (reforma tributária): é estimativa aplicada a todo cliente com receita
+    const alcancados=new Set(res.filter(r=>r.tipo!=='descritivo'&&r.id!==28).flatMap(r=>Object.entries(r.porCli).filter(([k,o])=>(o.v||0)>0||(o.n||0)>0).map(([k])=>k)));
+    const comVal=res.filter(r=>ehRS(r)&&r.total>0).sort((a,b)=>b.total-a.total);
+    const cliCont={}; res.filter(r=>r.id!==28).forEach(r=>Object.entries(r.porCli).forEach(([k,o])=>{ if((o.v||0)>0||(o.n||0)>0) cliCont[k]=(cliCont[k]||0)+1; }));
+    const topCli=Object.entries(cliCont).sort((a,b)=>b[1]-a[1])[0]||null;
+    NOVAS.alav={n:res.length, nValor:comVal.length, nCli:alcancados.size, top:comVal.slice(0,5).map(r=>({id:r.id,titulo:r.titulo,total:r.total,medida:r.medida})),
+      topCli, nLinhas:linhas.length, mes:AL.mes_ref,
+      totais:Object.fromEntries(res.map(r=>[r.id,{total:r.total, n:r.n, somaCli:Object.values(r.porCli).reduce((s,o)=>s+(o.v||0),0)}]))};
+    const kpi=(l,v,sub,st)=>`<div class="kpi"${st?` style="${st}"`:''}><div class="lbl">${l}</div><div class="val">${v}${sub?` <small>${sub}</small>`:''}</div></div>`;
+    const destaque='border-color:color-mix(in oklab,var(--amber) 40%,transparent);background:var(--amber-bg)';
+    const t0=comVal.find(r=>r.medida==='rs_ano');
+    document.getElementById('alRef').textContent=`${res.length} alavancas · referência ${AL.mes_ref||''} · volume dos últimos 12 meses`;
+    document.getElementById('alKpis').innerHTML=
+      kpi('Alavancas mapeadas', res.length, `${Object.keys(GRP).length} grupos · ${comVal.length} com valor em R$`)+
+      (t0?kpi('Maior alavanca em R$/ano', BRLmi(t0.total), `${t0.id}. ${escAttr(t0.titulo)}`, destaque):'')+
+      kpi('Clientes alcançados', alcancados.size, 'com pelo menos uma alavanca, fora a 28 (tributária, vale para todos)')+
+      (topCli?kpi('Cliente com mais alavancas', escAttr(topCli[0]), `${topCli[1]} de ${res.length - 1} (sem contar a 28)`):'')+
+      kpi('Linhas de item', nint(linhas.length), 'Ficha de Fluxo 2026, com R$/t acima da referência');
+    // filtros
+    let grp='', cliSel='';
+    document.getElementById('alGrupos').innerHTML=`<span class="chip on" data-alg="">Todas</span>`+
+      Object.entries(GRP).map(([g,nm])=>`<span class="chip" data-alg="${g}" title="${escAttr(nm)}">${g}</span>`).join('');
+    const selC=document.getElementById('alCli');
+    selC.innerHTML='<option value="">Todos os clientes</option>'+clientes.map(c=>`<option value="${escAttr(c)}">${escAttr(c)}</option>`).join('');
+    const rowsDe=()=>res.map(r=>{ const o=cliSel?r.porCli[cliSel]:null;
+      return {...r, valor:cliSel?(o?o.v:null):r.total, qtd:cliSel?(o?o.n:0):r.n, grupoNm:GRP[r.grupo]||r.grupo,
+        tem:!cliSel||r.medida==='nenhuma'||(o&&((o.v||0)>0||(o.n||0)>0))}; });
+    const tA=makeTable('tAlav', rowsDe(), [
+      {k:'id',h:'#',num:1,f:v=>`<span class="mono">${v}</span>`},
+      {k:'grupo',h:'Grupo',f:(v,r)=>`<span class="pill" title="${escAttr(r.grupoNm)}" style="background:var(--surface-2)">${v}</span>`},
+      {k:'titulo',h:'Alavanca',f:(v,r)=>`<b>${escAttr(v)}</b><br><span class="muted" style="font-size:11px;white-space:normal">${escAttr(r.norma)}</span>`},
+      {k:'valor',h:'Valor',num:1,title:'R$/ano = R$/t acima da referência × volume dos últimos 12 meses; período indicado nas alavancas do P&L',f:(v,r)=>fmtV(r,v,r.qtd)},
+      {k:'nCli',h:'Clientes',num:1,f:(v,r)=>cliSel?'':(v||'n/d')},
+      {k:'fonte',h:'Fonte',f:v=>`<span class="muted" style="font-size:11px;white-space:normal">${escAttr(v)}</span>`},
+    ], {sort:{k:'id',dir:1}, onRowClick:r=>detalhe(r.id)});
+    const apply=()=>{ const qq=(document.getElementById('alSearch').value||'').toLowerCase();
+      const r=rowsDe().filter(x=>x.tem&&(!grp||x.grupo===grp)&&(!qq||(x.titulo+' '+x.norma+' '+x.evidencia).toLowerCase().includes(qq)));
+      tA._render(r); document.getElementById('alCount').textContent=r.length+' alavancas'+(cliSel?' para '+cliSel:''); };
+    document.querySelectorAll('[data-alg]').forEach(c=>c.onclick=function(){
+      document.querySelectorAll('[data-alg]').forEach(x=>x.classList.remove('on')); this.classList.add('on'); grp=this.dataset.alg; apply(); });
+    document.getElementById('alSearch').oninput=apply;
+    selC.onchange=function(){ cliSel=this.value; apply(); if(aberta) detalhe(aberta); };
+    apply();
+    // detalhe de uma alavanca
+    let aberta=null;
+    const tabHtml=t=>!t||!t.rows||!t.rows.length?'':`<div class="tbl-wrap" style="margin:10px 0"><table><thead><tr>${t.cols.map((c,i)=>`<th class="${i?'num':''}">${escAttr(c)}</th>`).join('')}</tr></thead><tbody>${
+      t.rows.map(r=>`<tr>${r.map((v,i)=>`<td class="${i?'num':''}">${v==null?'n/d':typeof v==='number'?(Number.isInteger(v)&&Math.abs(v)>=1000?nint(v):String(v).replace('.',',')):escAttr(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    function detalhe(id){
+      const r=res.find(x=>x.id===id); if(!r) return; aberta=id;
+      document.getElementById('alDetPanel').style.display='';
+      document.getElementById('alDetTit').innerHTML=`${r.id}. ${escAttr(r.titulo)} <span class="h-hint">${escAttr(GRP[r.grupo]||'')}</span>`;
+      document.getElementById('alDet').innerHTML=
+        `<div class="desc"><b>Norma:</b> ${escAttr(r.norma)}<br><b>Fonte:</b> ${escAttr(r.fonte)}</div>`+
+        `<p style="margin:8px 0">${escAttr(r.evidencia)}</p>`+
+        (r.uso?`<p class="muted" style="margin:8px 0"><b>Como usar:</b> ${escAttr(r.uso)}</p>`:'')+
+        (ehRS(r)&&r.total!=null?`<p style="margin:8px 0"><b>Total:</b> ${fmtV(r,r.total,r.n)}${r.nCli?` em ${r.nCli} clientes`:''}</p>`:'')+
+        tabHtml(r.tabela);
+      const pc=Object.entries(r.porCli).map(([cliente,o])=>({cliente, v:o.v, n:o.n, det:o.det, alvo:alvoSet.has(cliente)}))
+        .filter(x=>!cliSel||x.cliente===cliSel);
+      document.getElementById('alDetCliWrap').style.display=pc.length?'':'none';
+      document.getElementById('alDetCliCount').textContent=pc.length+' clientes';
+      makeTable('tAlavCli', pc, [
+        {k:'cliente',h:'Cliente',f:(v,x)=>escAttr(v)+' '+alvoPill(x.alvo)},
+        ...(ehRS(r)?[{k:'v',h:'Valor',num:1,f:v=>v>0?BRLmi(v)+`<span class="muted">${UN[r.medida]}</span>`:'n/d'}]:[]),
+        {k:'n',h:r.tipo==='cliente'?'Rotas':'Itens',num:1,f:v=>v?nint(v):'n/d'},
+        {k:'det',h:'Detalhe',f:v=>`<span class="muted" style="white-space:normal">${escAttr(v||'')}</span>`},
+      ], {sort:ehRS(r)?{k:'v',dir:-1}:{k:'n',dir:-1}});
+      const L=r.L.filter(l=>!cliSel||l.cliente===cliSel);
+      document.getElementById('alDetLinWrap').style.display=r.L.length?'':'none';
+      if(r.L.length){
+        const tL=makeTable('tAlavLin', L, [
+          {k:'cliente',h:'Cliente',f:(v)=>escAttr(v)},
+          {k:'rota',h:'Rota',f:v=>`<span class="mono">${v}</span>`},
+          {k:'produto',h:'Produto',f:(v,l)=>`<span class="muted">${escAttr(v)}</span><br><span class="muted mono" style="font-size:10px">item ${l.item}</span>`},
+          {k:'servico',h:'Serviço',f:(v,l)=>slbl(v)+(l.ferrovia?` <span class="muted mono" style="font-size:10px">${escAttr(l.ferrovia)}</span>`:'')},
+          {k:'cobrado',h:'Cobrado R$/t',num:1,f:v=>v>0?n2(v):'n/d'},
+          {k:'referencia',h:'Referência R$/t',num:1,f:v=>v==null?'n/d':n2(v)},
+          {k:'excesso',h:'Acima R$/t',num:1,f:(v,l)=>v>0?`<b>${n2(v)}</b>`:(l.serie&&l.serie.length?'<span class="muted" title="sem excesso no mês de referência; há excesso em outros meses do ano">outros meses</span>':'n/d')},
+          {k:'volKt',h:'Vol 12m kt',num:1,f:v=>v>0?N1(v):'n/d'},
+          ...(r.tipo==='linhas'?[{k:'rsAno',h:'R$/ano',num:1,f:(v,l)=>(v>0?BRLmi(v):'n/d')+(l.mensal?' <span class="pill" title="grãos e farelo: soma mês a mês do excesso × volume do mês">mês a mês</span>':'')}]:[]),
+          {k:'detalhe',h:'Detalhe',f:v=>`<span class="muted" style="white-space:normal;font-size:11px">${escAttr(v||'')}</span>`},
+        ], {sort:r.tipo==='linhas'?{k:'rsAno',dir:-1}:{k:'cliente',dir:1}});
+        const ap=()=>{ const qq=(document.getElementById('alLinSearch').value||'').toLowerCase();
+          const x=L.filter(l=>!qq||(l.cliente+' '+l.rota+' '+l.produto+' '+l.item+' '+l.servico).toLowerCase().includes(qq));
+          tL._render(x); document.getElementById('alLinCount').textContent=nint(x.length)+' linhas'; };
+        document.getElementById('alLinSearch').value=''; document.getElementById('alLinSearch').oninput=ap; ap();
+      }
+      document.getElementById('alDetPanel').scrollIntoView&&document.getElementById('alDetPanel').scrollIntoView({behavior:'smooth',block:'start'});
+    }
+    // bloco no Painel do Cliente (some no modo apresentação: é material interno)
+    const abrir=(cli,id)=>{ selC.value=clientes.includes(cli)?cli:''; cliSel=selC.value; apply(); activateTab('alavancas',true); if(id) detalhe(id); };
+    window.ALAV_API={res, doCliente:cli=>res.map(r=>({id:r.id, titulo:r.titulo, grupo:r.grupo, medida:r.medida, o:r.porCli[cli]}))
+      .filter(x=>x.o&&((x.o.v||0)>0||(x.o.n||0)>0)), abrir};
+    window.pcRenderAlav=function(cli){
+      const el=document.getElementById('pcAlavancas'); if(!el) return;
+      if(API&&API.apresentacao&&API.apresentacao()){ el.innerHTML=''; return; }
+      const it=window.ALAV_API.doCliente(cli).map(x=>({...x, r:res.find(y=>y.id===x.id)}));
+      if(!it.length){ el.innerHTML=''; return; }
+      it.sort((a,b)=>(ehRS(b.r)&&b.r.medida==='rs_ano'?(b.o.v||0):-1)-(ehRS(a.r)&&a.r.medida==='rs_ano'?(a.o.v||0):-1)||a.id-b.id);
+      el.innerHTML=`<div class="subcard"><div class="sec-h" style="border-top:0;padding-top:0">Alavancas regulatórias deste cliente
+        <span class="h-hint">${it.length} de ${res.length} · valores não se somam · uso interno (some no modo apresentação)</span>
+        <a href="#alavancas" class="lk" data-alcli="1" style="margin-left:8px">abrir na aba Alavancas →</a></div>
+        <div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th class="num">#</th><th>Alavanca</th><th class="num">Valor</th><th>Detalhe</th></tr></thead><tbody>${
+        it.map(x=>`<tr data-alid="${x.id}" style="cursor:pointer"><td class="num mono">${x.id}</td><td><b>${escAttr(x.titulo)}</b></td><td class="num">${fmtV(x.r,x.o.v,x.o.n)}</td><td class="muted" style="white-space:normal;font-size:11px">${escAttr(x.o.det||'')}</td></tr>`).join('')
+        }</tbody></table></div></div>`;
+      el.onclick=e=>{ const a=e.target.closest('[data-alcli]'); if(a){ e.preventDefault(); abrir(cli); return; }
+        const tr=e.target.closest('tr[data-alid]'); if(tr) abrir(cli,+tr.dataset.alid); };
+    };
+    if(API&&API.cliAtual) window.pcRenderAlav(API.cliAtual());
+  }catch(e){ console.error('Alavancas regulatórias:', e); }
+})();
+
 const RAIL_TITLES={
   basepotenciais:'Insights · Potenciais Clientes',
   horizontes:'Insights · Simulador Excel',
@@ -8176,6 +8412,7 @@ const RAIL_TITLES={
   contratos:'Insights · Contratos', contatos:'Insights · Contatos', alvos:'Sobre os Alvos',
   novonegocio:'Insights · Novo Negócio', reajustes:'Insights · Reajustes e Vencimentos', ficha:'Insights · Ficha de Fluxo 2026',
   portoservicos:'Insights · Porto e Serviços', captura:'Insights · Pendências de Captura',
+  alavancas:'Insights · Alavancas Regulatórias',
 };
 const RAIL={
   basepotenciais(){
@@ -8375,6 +8612,18 @@ const RAIL={
       P.top?{hd:'Maior diferença no porto', ref:P.top.cliente+' · '+P.top.produto+' '+P.top.uf, bd:`R$ ${N1(P.top.rs_t)}/t contra R$ ${N1(P.top.min_pares)}/t do menor par (${escAttr(P.top.min_cliente||'')}) — confira o escopo do serviço antes de usar.`}:null,
       {hd:'Estadia de vagões', ref:'R$ '+N1(P.estadia25)+' mi · '+P.nEstadia+' clientes', bd:'Cobrança que depende de quem causou a espera. Peça ao cliente o extrato de estadia e os registros de chegada/liberação de vagões.'},
     ].filter(Boolean);
+  },
+  alavancas(){
+    const A=NOVAS.alav; if(!A) return null;
+    const UN={rs_ano:'/ano', rs_periodo:' no período', rs_2025:' em 2025'};
+    const it=[];
+    if(A.top.length) it.push({hd:'Maiores alavancas em R$', ref:`${A.top[0].id}. ${A.top[0].titulo}`,
+      bd:A.top.slice(0,4).map(t=>`${t.id}. ${t.titulo}: ${BRLmi(t.total)}${UN[t.medida]||''}`).join('; ')+'.'});
+    it.push({hd:'Os valores não se somam', ref:'Ângulos sobrepostos', bd:'IPOA, faixa da manobra, mediana dos pares e salto de 2024 medem em boa parte o mesmo dinheiro. Para proposta, escolher uma tese principal por cliente e usar as outras como reforço.'});
+    it.push({hd:'Porta de entrada', ref:'Alavancas 1, 2 e 5', bd:'Cobrança acima do máximo publicado, serviço sem indicador e manobra de conexão: infrações objetivas, de valor menor, que abrem a conversa sem depender de comparação com outros clientes.'});
+    if(A.topCli) it.push({hd:'Cliente com mais alavancas', ref:A.topCli[0], bd:`${A.topCli[1]} das ${A.n} alavancas se aplicam. Abra o Painel do Cliente para ver o bloco de alavancas dele.`});
+    it.push({hd:'Uso', ref:'Estratégia interna', bd:'Ficha de Fluxo, P&L e orçamento são documentos internos da VLI. A peça do cliente usa o F-LINK e o contrato dele, a tabela publicada (ata notarial) e documentos obtidos por LAI ou exibição.'});
+    return it;
   },
   captura(){
     const C=NOVAS.captura; if(!C) return null;

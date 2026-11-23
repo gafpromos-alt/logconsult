@@ -57,6 +57,7 @@ ETAPAS_PROCESSO = [
     ("Market share", ["rebuild_market_share.sh"]),
     ("Custo logístico", ["rebuild_custo_logistico.sh"]),
     ("Projetos por cliente (Painel do Cliente)", ["add_projetos_clientes.py"]),
+    ("Alavancas regulatórias (Ficha 2026, P&L, orçamento)", ["add_alavancas.py"]),
 ]
 ETAPAS_PAINEL = [
     ("Painel", ["build_painel.py"]),

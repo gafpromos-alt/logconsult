@@ -88,7 +88,16 @@ const coleta = `
     porto: NOVAS.porto ? {rec: NOVAS.porto.rec} : null,
     captura: NOVAS.captura ? {n: NOVAS.captura.n} : null,
     ficha: NOVAS.ficha ? {n: NOVAS.ficha.n, acimaTeto: NOVAS.ficha.acimaTeto, excIpoa: NOVAS.ficha.excIpoa} : null,
-    orc: NOVAS.orc ? {n: NOVAS.orc.n, dTotal: NOVAS.orc.dTotal} : null } : null;
+    orc: NOVAS.orc ? {n: NOVAS.orc.n, dTotal: NOVAS.orc.dTotal} : null,
+    alav: NOVAS.alav ? {n: NOVAS.alav.n, nCli: NOVAS.alav.nCli, nLinhas: NOVAS.alav.nLinhas, totais: NOVAS.alav.totais} : null } : null;
+  // bloco de alavancas no Painel do Cliente: monta para todo cliente sem erro
+  out.alav_cli = {ok: 0, erros: []};
+  if (window.ALAV_API && window.pcRenderAlav && API) {
+    [...new Set(API.PJF.map(f => API.canonPC(f.cliente)))].forEach(c => {
+      try { window.pcRenderAlav(c); window.ALAV_API.doCliente(c); out.alav_cli.ok++; }
+      catch (e) { out.alav_cli.erros.push(c + ': ' + String(e.message || e)); }
+    });
+  }
   out.clientes = {};
   if (API) {
     const clis = [...new Set(API.PJF.map(f => API.canonPC(f.cliente)))];

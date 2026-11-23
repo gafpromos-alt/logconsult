@@ -151,7 +151,25 @@ def testes_banco():
     else:
         ok(False, "coluna `realizado` ausente em vli_pnl (rode build_db.py)")
 
-    # 11. auditoria de volume não piorou
+    # 11. alavancas regulatórias (add_alavancas.py, 23/nov/2026): 30 no catálogo, sem travessão,
+    #     linhas só de itens com preço atual na ficha, excesso nunca negativo
+    tabs = {r[0] for r in q("SELECT name FROM sqlite_master WHERE type='table'")}
+    if ok({"alavanca_catalogo", "alavanca_linha", "alavanca_cliente"} <= tabs, "tabelas de alavancas ausentes (rode add_alavancas.py)"):
+        ids = [r[0] for r in q("SELECT id FROM alavanca_catalogo ORDER BY id")]
+        ok(ids == list(range(1, 31)), f"catálogo de alavancas incompleto: {len(ids)} de 30")
+        txt = q("""SELECT titulo||norma||fonte||evidencia||COALESCE(uso,'')||COALESCE(tabela,'') FROM alavanca_catalogo
+                   UNION ALL SELECT COALESCE(detalhe,'') FROM alavanca_linha UNION ALL SELECT COALESCE(detalhe,'') FROM alavanca_cliente""")
+        n = sum(1 for (t,) in txt if "\u2013" in t or "\u2014" in t)
+        ok(n == 0, f"{n} texto(s) de alavanca com travessão ou meia-risca")
+        n = q("""SELECT COUNT(*) FROM alavanca_linha l LEFT JOIN ficha_fluxo_ref r ON r.item=l.item AND r.status='atual'
+                 WHERE r.item IS NULL""")[0][0]
+        ok(n == 0, f"{n} linha(s) de alavanca apontando para item sem preço atual na ficha")
+        n = q("SELECT COUNT(*) FROM alavanca_linha WHERE excesso < 0 OR excesso IS NULL")[0][0]
+        ok(n == 0, f"{n} linha(s) de alavanca com excesso negativo ou vazio")
+        n = q("""SELECT COUNT(*) FROM alavanca_cliente c LEFT JOIN alavanca_catalogo a ON a.id=c.alav WHERE a.id IS NULL""")[0][0]
+        ok(n == 0, f"{n} valor(es) por cliente de alavanca inexistente")
+
+    # 12. auditoria de volume não piorou
     r = subprocess.run([sys.executable, "-c", "import audit_volumes; audit_volumes.audit()"],
                        cwd=BASE, capture_output=True, text=True)
     m = re.search(r"FAIL — (\d+) instancia", r.stdout)
@@ -182,8 +200,22 @@ def testes_painel():
     d = out["dados"] or {}
     ok(d.get("pc_api"), "window.PC_API não foi criado")
     nv = d.get("novas") or {}
-    for k in ("reaj", "venc", "porto", "captura", "ficha", "orc"):
+    for k in ("reaj", "venc", "porto", "captura", "ficha", "orc", "alav"):
         ok(nv.get(k), f"aba nova sem dado: {k}")
+    # alavancas: 30 no painel; soma por cliente = total de cada alavanca em R$; nada não numérico;
+    # IPOA e pares iguais aos da aba Ficha (um número, uma função)
+    al = nv.get("alav") or {}
+    ok(al.get("n") == 30, f"aba Alavancas com {al.get('n')} alavancas (esperado 30)")
+    for i, t in (al.get("totais") or {}).items():
+        if t.get("total") is not None:
+            ok(t["total"] == t["total"] and abs(t["total"] - t["somaCli"]) < 1,
+               f"alavanca {i}: soma por cliente {t['somaCli']:.0f} ≠ total {t['total']:.0f}")
+    fi = nv.get("ficha") or {}
+    tt = al.get("totais") or {}
+    if fi and tt:
+        ok(abs((tt.get("6") or {}).get("total", 0) - fi.get("excIpoa", 0)) < 1, "alavanca 6 ≠ excesso de IPOA da aba Ficha")
+    bl = d.get("alav_cli") or {}
+    ok(bl.get("ok", 0) >= 20 and not bl.get("erros"), f"bloco de alavancas do Painel do Cliente: {bl}")
     cli = d.get("clientes") or {}
     ok(len(cli) >= 20, f"só {len(cli)} clientes no Painel do Cliente")
     for c, v in cli.items():
