@@ -26,6 +26,11 @@ DB = BASE / "logconsult.db"
 DB_TMP = pathlib.Path(tempfile.gettempdir()) / "logconsult_build.db"
 
 F_PNL = VLI / "24_25_26.xlsx"   # base unificada: abas 2024/2025/2026, substitui Pasta5.xlsx + o refresh parcial anterior
+# nov/2026: "Precos 25_27" traz 2025 Real (idêntico ao arquivo acima), 2026 Tendência 10+2 (jan a out
+# realizados), 2026 Orçamento Oficial, 2027 Orçamento Aceite v9, 2027 Orçamento Demanda V4 e BP 27.
+F_PNL2 = VLI / "Precos 25_27.xls.xlsx"
+# nov/2026: "Precos21_24" traz 2021, 2022, 2023 e 2024 Real (2024 idêntico ao 24_25_26.xlsx).
+F_PNL3 = VLI / "Precos21_24.xlsx"
 F_SERV = VLI / "Fluxos Graos - Abertura por  serviço 23-04-2026 (1).xlsx"
 F_IPOA = VLI / "IPOA.xlsx"
 F_CRM = VLI / "Todos os contatos e contas-2025-10-31-09-52-04.xlsx"
@@ -64,6 +69,52 @@ def load(con, name, df, note=""):
     return df
 
 
+def _ano_panorama(p):
+    m = re.match(r"^(\d{4})", str(p))
+    if m:
+        return int(m[1])
+    m = re.search(r"BP\s*(\d{2})\b", str(p))
+    return 2000 + int(m[1]) if m else None
+
+
+def _realizado(r):
+    p = str(r["Panorama"])
+    if "Real" in p:
+        return 1
+    m = re.search(r"Tend[eê]ncia\s+(\d+)\s*\+\s*(\d+)", p)
+    return int(bool(m) and r["Mês"] <= int(m[1]))
+
+
+_CORREDOR = {"CENTRO-LESTE": "Centro-Leste", "CENTRO-NORTE": "Centro-Norte", "CENTRO-SUDESTE": "Centro-Sudeste",
+             "MINAS-BAHIA": "Minas-Bahia", "MINAS-RIO": "Minas-Rio"}
+
+
+def _junta_precos_25_27(pnl):
+    """Junta Precos21_24 e Precos 25_27 ao 24_25_26.xlsx. Tendência nova do ano substitui a antiga; Real do arquivo novo só entra em ano que o antigo
+    não tem (2025 é idêntico, conferido cliente a cliente em 23/nov/2026, e o antigo tem mais
+    colunas descritivas). Orçamentos e BP vão para uma tabela própria, para nenhuma consulta de
+    realizado somar orçamento por engano."""
+    fontes = [f for f in (F_PNL3, F_PNL2) if f.exists()]
+    if not fontes:
+        return pnl, None
+    novo = pd.concat([pd.read_excel(f, sheet_name=0) for f in fontes], ignore_index=True)
+    novo["Ano"] = novo["Panorama"].map(_ano_panorama)
+    novo["Corredor VLI"] = novo["Corredores - 1 - Corredor"].map(_CORREDOR)
+    eh_tend = novo["Panorama"].str.contains("Tendência", case=False, na=False)
+    eh_real = novo["Panorama"].str.contains("Real", case=False, na=False)
+    tend = novo[eh_tend]
+    if len(tend):
+        anos = set(tend["Ano"])
+        velha = pnl["Panorama"].str.contains("Tendência", case=False, na=False) & pnl["Ano"].isin(anos)
+        pnl = pd.concat([pnl[~velha], tend], ignore_index=True)
+    anos_real = set(pnl.loc[pnl["Panorama"].str.contains("Real", na=False), "Ano"])
+    pnl = pd.concat([pnl, novo[eh_real & ~novo["Ano"].isin(anos_real)]], ignore_index=True)
+    orc = novo[~eh_tend & ~eh_real].copy()
+    print(f"  Precos 21_24 / 25_27: real novo {sorted(set(novo.loc[eh_real & ~novo['Ano'].isin(anos_real), 'Panorama']))}; "
+          f"tendência {sorted(set(tend['Panorama']))}; orçamentos {sorted(set(orc['Panorama']))}")
+    return pnl, orc
+
+
 def main():
     if DB_TMP.exists():
         DB_TMP.unlink()
@@ -76,7 +127,15 @@ def main():
     # REC-FR muito incompletos,~15-40% das linhas). Aqui as 3 abas têm cobertura mensal
     # completa e volume por ano bate com a tendência histórica (60-65M t/ano).
     pnl = pd.concat([pd.read_excel(F_PNL, sheet_name=sh) for sh in ["2024","2025","2026"]], ignore_index=True)
-    load(con, "vli_pnl", pnl, "P&L VLI por fluxo×mês×panorama (base unificada 24_25_26.xlsx)")
+    pnl, orc = _junta_precos_25_27(pnl)
+    # `realizado` = 1 no que já aconteceu: panorama Real inteiro e, na Tendência "N+M", os N primeiros
+    # meses. Toda leitura de realizado usa esta coluna (antes era "Real ou 2026 até julho", escrito
+    # à mão em cada consulta).
+    pnl["realizado"] = pnl.apply(_realizado, axis=1)
+    load(con, "vli_pnl", pnl, "P&L VLI realizado + tendência do ano (24_25_26.xlsx e Precos 25_27)")
+    if orc is not None:
+        load(con, "vli_pnl_orcamento", orc,
+             "orçamentos VLI (2026 Oficial, 2027 Aceite v9, 2027 Demanda V4, BP 27), de Precos 25_27")
 
     # 2) Tarifa por serviço (abertura de acessórias) — formato tidy
     serv = pd.read_excel(F_SERV, sheet_name="Servicos")

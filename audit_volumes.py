@@ -148,7 +148,7 @@ def carregar(conn):
     vp = cur.execute(
         """SELECT cliente, origem, destino, mercadoria, ano, mes, SUM(vol_tu)
            FROM vli_pnl
-           WHERE modal='Ferrovia' AND (panorama LIKE '%Real%' OR (panorama LIKE '2026%' AND mes<=7))
+           WHERE modal='Ferrovia' AND realizado=1
            GROUP BY cliente, origem, destino, mercadoria, ano, mes HAVING SUM(vol_tu) > 0"""
     ).fetchall()
 

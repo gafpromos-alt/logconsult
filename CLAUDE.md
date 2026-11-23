@@ -35,6 +35,12 @@ esses arquivos.
   add_projetos_clientes) leva a ficha ao Painel do Cliente: pelo item citado na cobertura, senão
   pela rota (maior tarifa), e cria fluxos para rotas/clientes sem painel. Ficha nova: substituir
   o arquivo e rodar `atualizar_tudo.py --sem-base`.
+- **P&L VLI** (`vli_pnl`): `build_db.py` junta `24_25_26.xlsx` (2024), `Precos21_24.xlsx` (2021 a 2023)
+  e `Precos 25_27.xls.xlsx` (2025 Real e a tendência do ano, que substitui a anterior). Coluna
+  `realizado` = 1 no Real e nos N meses realizados da tendência "N+M": **toda leitura de realizado
+  usa `realizado=1`**, nunca `panorama LIKE ...` com mês fixo. Orçamentos e BP ficam em
+  `vli_pnl_orcamento` (nunca somar com `vli_pnl`). No P&L o DP vem dentro de `rec_fr`
+  (`rec_dp` quase sempre zero): "frete" do P&L = frete + DP.
 - `gerar_indice_videos.py` gera `09_Fotos/_indice_videos.csv` (diário de captura: vídeo →
   status/cliente/script). Rodar depois de minerar vídeos novos.
 - Regras de negócio que definem os números: `../06_Corporate_Memory/Regras_e_Decisoes_LogConsultOS.md`.

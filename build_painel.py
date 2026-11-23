@@ -365,7 +365,7 @@ vm["t"] = vm["ktu"] * 1000.0
 # jul) — achado ao validar "Últimos 12 meses" com o usuário (21/jul/2026): sem esse filtro,
 # ago-dez/2026 (panorama "Tendência", ORÇADO, não realizado) entrava como se fosse volume real.
 _vp = q("""SELECT cliente, origem, destino, mercadoria AS produto, ano, mes, SUM(vol_tu) t FROM vli_pnl
-           WHERE modal='Ferrovia' AND (panorama LIKE '%Real%' OR (panorama LIKE '2026%' AND mes<=7))
+           WHERE modal='Ferrovia' AND realizado=1
            GROUP BY cliente, origem, destino, mercadoria, ano, mes HAVING SUM(vol_tu)>0""")
 _vp["cli_n"] = _vp["cliente"].map(canon)
 _vp["produto"] = _vp["produto"].map(_merc_base)  # mesma normalização de grade do bloco vm acima
@@ -797,7 +797,7 @@ saz = q("""SELECT cliente, origem, destino, mercadoria AS produto, ano, mes,
                   SUM(rec_fr) recfr, SUM(vol_tu) voltu
            FROM vli_pnl
            WHERE modal='Ferrovia'
-             AND (panorama LIKE '%Real%' OR (panorama LIKE '2026%' AND mes<=7))
+             AND realizado=1
            GROUP BY cliente, origem, destino, mercadoria, ano, mes""")
 saz["cliente"] = saz["cliente"].map(canon)
 saz = saz.groupby(["cliente","origem","destino","produto","ano","mes"], as_index=False)[["recfr","voltu"]].sum()
@@ -1060,7 +1060,7 @@ try:
     # rec_fr e vol_tu vêm em LINHAS separadas no P&L — filtrar no agregado (HAVING), nunca por linha
     _hist_p = q("""SELECT cliente, ano, origem, destino, mercadoria,
                           SUM(rec_fr) rec, SUM(vol_tu) vol
-                   FROM vli_pnl WHERE modal='Ferrovia'
+                   FROM vli_pnl WHERE modal='Ferrovia' AND realizado=1
                    GROUP BY cliente, ano, origem, destino, mercadoria
                    HAVING SUM(rec_fr)>0 AND SUM(vol_tu)>=10000""")
     for _df in (_hist_v, _hist_p):
@@ -1103,7 +1103,7 @@ try:
                       SUM(rec_total) tot, SUM(vol_tu) vol
                FROM vli_pnl
                WHERE modal='Ferrovia'
-                 AND (panorama LIKE '%Real%' OR (panorama LIKE '2026%' AND mes<=7))
+                 AND realizado=1
                GROUP BY cliente, origem, destino, mercadoria, ano, mes
                HAVING SUM(vol_tu)>=1000 AND SUM(rec_total)>0""")
     _hm["cli_up"] = _hm["cliente"].astype(str).str.upper()
@@ -1560,9 +1560,10 @@ ipoa_data = {"ref": IPOA_REF, "ipoa_medio": round(ip["ipoa"].mean()*100, 1),
 volh_old = q("""SELECT ano, mes, corredor, cliente, mercadoria, origem, destino,
                    realizado_ktu, realizado_mtku
             FROM volume_hist WHERE realizado_ktu > 0 AND ano < 2025""")
+# só meses realizados (nov/2026: a tendência 10+2 traz nov e dez projetados, que não são volume real)
 volh_new = q("""SELECT ano, mes, corredor_vli AS corredor, cliente, mercadoria, origem, destino,
                        SUM(vol_tu)/1000.0 AS realizado_ktu, SUM(vol_tku)/1e6 AS realizado_mtku
-                FROM vli_pnl WHERE modal='Ferrovia' AND ano IN (2025,2026)
+                FROM vli_pnl WHERE modal='Ferrovia' AND ano IN (2025,2026) AND realizado=1
                 GROUP BY ano, mes, corredor_vli, cliente, mercadoria, origem, destino
                 HAVING SUM(vol_tu) > 0""")
 volh = pd.concat([volh_old, volh_new], ignore_index=True)
@@ -1848,7 +1849,8 @@ def _ym(v):
     v = int(v) if v is not None and not pd.isna(v) else None
     return f"{v // 100}-{v % 100:02d}" if v else None
 _db_vol = q("SELECT MAX(ano*100+mes) m FROM volume_hist WHERE realizado_ktu>0")["m"].iloc[0]
-_db_pnl_real = q("SELECT MAX(ano*100+mes) m FROM vli_pnl WHERE panorama LIKE '%Real%'")["m"].iloc[0]
+_db_pnl_real = q("SELECT MAX(ano*100+mes) m FROM vli_pnl WHERE realizado=1")["m"].iloc[0]
+_pan_tend = q("SELECT panorama, MAX(CASE WHEN realizado=1 THEN mes END) m FROM vli_pnl WHERE panorama LIKE '%Tendência%' GROUP BY panorama")
 _hoje_iso = datetime.date.today().isoformat()
 _vi_max = max((v for v in (_reaj["vigencia_inicial"] if len(_reaj) else []) if v and v <= _hoje_iso), default=None)
 def _mtime(p):
@@ -1860,7 +1862,9 @@ _VLI_DIR = pathlib.Path(__file__).resolve().parent.parent / "07_Dados VLI"
 DATA_BASE = {
     "volume_ate": _ym(_db_vol),
     "pnl_real_ate": _ym(_db_pnl_real),
-    "pnl_2026": "Tendência 6+6 (jan–jul tratados como realizado)",
+    "pnl_2026": "; ".join(f"{r.panorama} (realizado até o mês {int(r.m)})" for r in _pan_tend.itertuples() if r.m),
+    "orcamentos": [r.panorama for r in q("SELECT DISTINCT panorama FROM vli_pnl_orcamento ORDER BY panorama").itertuples()]
+                  if q("SELECT COUNT(*) n FROM sqlite_master WHERE name='vli_pnl_orcamento'")["n"].iloc[0] else [],
     "precos_contratuais_ate": _vi_max,
     "banco_em": _mtime(DB) if "DB" in dir() else None,
     "arquivos": {n: _mtime(_VLI_DIR / n) for n in (
@@ -2029,6 +2033,129 @@ try:
 except Exception as _e:
     print("  ! ficha 2026 indisponível no painel:", _e)
 
+# ---- 6) Orçamento VLI 2027 contra o realizado 2026 (Precos 25_27, nov/2026) ----
+# R$/t por cliente × rota × produto (ferrovia): realizado 2026 (meses realizados da tendência),
+# orçamento 2026 Oficial e orçamento 2027 Aceite v9, SEMPRE nos mesmos meses do ano (jan até o
+# último mês realizado), porque grão tem preço sazonal. Soma receita e volume antes de dividir.
+# Regra de 19/nov: acessórias sem DP; IPOA = acessórias ÷ (frete + DP).
+orcamento = {"fluxos": [], "clientes": [], "rotas": [], "panoramas": [], "resumo": {}}
+try:
+    if q("SELECT COUNT(*) n FROM sqlite_master WHERE name='vli_pnl_orcamento'")["n"].iloc[0]:
+        _mr = int(q("SELECT MAX(mes) m FROM vli_pnl WHERE ano=2026 AND realizado=1")["m"].iloc[0])
+        _pan = {r.panorama: r.panorama for r in q("SELECT DISTINCT panorama FROM vli_pnl_orcamento").itertuples()}
+        _p27 = next((p for p in _pan if p.startswith("2027") and "Aceite" in p), None)
+        _p26o = next((p for p in _pan if p.startswith("2026") and "Oficial" in p), None)
+        _sel = """SELECT cliente, origem, destino, mercadoria AS produto, SUM(rec_fr) fr, SUM(rec_dp) dp,
+                         SUM(rec_man) man, SUM(rec_trbd) trbd, SUM(rec_total) tot, SUM(vol_tu) vol
+                  FROM {t} WHERE modal='Ferrovia' AND {w} GROUP BY cliente, origem, destino, mercadoria"""
+        def _ag(t, w):
+            d = q(_sel.format(t=t, w=w))
+            # SUM de coluna toda nula volta como objeto (None) e a divisão quebra; força número
+            for _c in ("fr", "dp", "man", "trbd", "tot", "vol"):
+                d[_c] = pd.to_numeric(d[_c], errors="coerce").fillna(0.0).astype(float)
+            d["cliente"] = d["cliente"].map(canon)
+            d["produto"] = d["produto"].map(_merc_base)
+            return d.groupby(["cliente", "origem", "destino", "produto"], as_index=False)[
+                ["fr", "dp", "man", "trbd", "tot", "vol"]].sum()
+        _r26 = _ag("vli_pnl", "ano=2026 AND realizado=1")
+        _o26 = _ag("vli_pnl_orcamento", f"panorama='{_p26o}' AND mes<={_mr}") if _p26o else None
+        _o27 = _ag("vli_pnl_orcamento", f"panorama='{_p27}' AND mes<={_mr}") if _p27 else None
+        _k = ["cliente", "origem", "destino", "produto"]
+        def _rs(d, suf):
+            d = d.copy()
+            v = d["vol"].where(d["vol"] > 0)
+            d["frete"] = d["fr"] / v; d["dp_t"] = d["dp"] / v
+            d["manobra"] = d["man"] / v; d["transbordo"] = d["trbd"] / v
+            d["acess"] = (d["tot"] - d["fr"] - d["dp"]) / v; d["total"] = d["tot"] / v
+            d["ipoa"] = d["acess"] / (d["frete"] + d["dp_t"])
+            d["vol_kt"] = d["vol"] / 1000
+            cols = ["frete", "dp_t", "manobra", "transbordo", "acess", "total", "ipoa", "vol_kt", "tot"]
+            return d[_k + cols].rename(columns={c: f"{c}_{suf}" for c in cols})
+        _m = _rs(_r26, "r26").merge(_rs(_o27, "o27"), on=_k, how="inner")
+        if _o26 is not None:
+            _m = _m.merge(_rs(_o26, "o26")[_k + ["total_o26", "vol_kt_o26", "acess_o26"]], on=_k, how="left")
+        _m = _m[(_m["vol_kt_r26"] >= 10) & (_m["vol_kt_o27"] >= 10) & (_m["total_r26"] > 0) & (_m["total_o27"] > 0)].copy()
+        for c in ("frete", "acess", "total", "manobra", "vol_kt"):
+            _m[f"d_{c}"] = _m[f"{c}_o27"] / _m[f"{c}_r26"].where(_m[f"{c}_r26"] > 0) - 1
+        # receita adicional orçada só por preço: (R$/t 2027 − R$/t 2026) × volume 2027, no período
+        _m["efeito_preco_mi"] = (_m["total_o27"] - _m["total_r26"]) * _m["vol_kt_o27"] * 1000 / 1e6
+        _m["efeito_acess_mi"] = (_m["acess_o27"] - _m["acess_r26"]) * _m["vol_kt_o27"] * 1000 / 1e6
+        _m["alvo"] = _m["cliente"].map(is_alvo)
+        orcamento["fluxos"] = rec(_m.drop(columns=["tot_r26", "tot_o27"]).round(4))
+        # por cliente: soma antes de dividir
+        _c = _r26.merge(_o27, on=_k, suffixes=("_r26", "_o27"))
+        _ok = set(zip(_m["cliente"], _m["origem"], _m["destino"], _m["produto"]))
+        _c = _c[[k in _ok for k in zip(_c["cliente"], _c["origem"], _c["destino"], _c["produto"])]]
+        _cg = _c.groupby("cliente", as_index=False).sum(numeric_only=True)
+        def _pt(g, a, suf):
+            return g[f"{a}_{suf}"] / g[f"vol_{suf}"]
+        _cl = pd.DataFrame({"cliente": _cg["cliente"]})
+        for suf in ("r26", "o27"):
+            _cl[f"frete_{suf}"] = _pt(_cg, "fr", suf)
+            _cl[f"acess_{suf}"] = (_cg[f"tot_{suf}"] - _cg[f"fr_{suf}"] - _cg[f"dp_{suf}"]) / _cg[f"vol_{suf}"]
+            _cl[f"total_{suf}"] = _pt(_cg, "tot", suf)
+            _cl[f"vol_kt_{suf}"] = _cg[f"vol_{suf}"] / 1000
+        for c in ("frete", "acess", "total", "vol_kt"):
+            _cl[f"d_{c}"] = _cl[f"{c}_o27"] / _cl[f"{c}_r26"] - 1
+        _cl["efeito_preco_mi"] = (_cl["total_o27"] - _cl["total_r26"]) * _cl["vol_kt_o27"] * 1000 / 1e6
+        _cl["efeito_acess_mi"] = (_cl["acess_o27"] - _cl["acess_r26"]) * _cl["vol_kt_o27"] * 1000 / 1e6
+        _cl["n_fluxos"] = _cl["cliente"].map(_m.groupby("cliente").size())
+        _cl["alvo"] = _cl["cliente"].map(is_alvo)
+        orcamento["clientes"] = rec(_cl[_cl["vol_kt_r26"] >= 10].round(4))
+        # POR ROTA (todos os clientes somados): o orçamento não distribui grão por cliente — em 2026
+        # os grãos sem contrato estão em "POOL" e, no 2027 Aceite, quase todo o grão foi lançado em
+        # "ADM" (13 Mt). A tarifa média orçada da rota contra a realizada é a comparação que cobre grão.
+        _kr = ["origem", "destino", "produto"]
+        _rr = _r26.groupby(_kr, as_index=False).sum(numeric_only=True)
+        _ro = _o27.groupby(_kr, as_index=False).sum(numeric_only=True)
+        _rt = _rr.merge(_ro, on=_kr, suffixes=("_r26", "_o27"))
+        _rt = _rt[(_rt["vol_r26"] >= 10000) & (_rt["vol_o27"] >= 10000) & (_rt["tot_r26"] > 0) & (_rt["tot_o27"] > 0)].copy()
+        for suf in ("r26", "o27"):
+            _rt[f"frete_{suf}"] = _rt[f"fr_{suf}"] / _rt[f"vol_{suf}"]
+            _rt[f"acess_{suf}"] = (_rt[f"tot_{suf}"] - _rt[f"fr_{suf}"] - _rt[f"dp_{suf}"]) / _rt[f"vol_{suf}"]
+            _rt[f"manobra_{suf}"] = _rt[f"man_{suf}"] / _rt[f"vol_{suf}"]
+            _rt[f"total_{suf}"] = _rt[f"tot_{suf}"] / _rt[f"vol_{suf}"]
+            _rt[f"vol_kt_{suf}"] = _rt[f"vol_{suf}"] / 1000
+        for c in ("frete", "acess", "total", "manobra", "vol_kt"):
+            _rt[f"d_{c}"] = _rt[f"{c}_o27"] / _rt[f"{c}_r26"].where(_rt[f"{c}_r26"] > 0) - 1
+        _rt["efeito_preco_mi"] = (_rt["total_o27"] - _rt["total_r26"]) * _rt["vol_o27"] / 1e6
+        _rt["efeito_acess_mi"] = (_rt["acess_o27"] - _rt["acess_r26"]) * _rt["vol_o27"] / 1e6
+        _rt["n_cli_r26"] = [int(((_r26["origem"] == a) & (_r26["destino"] == b) & (_r26["produto"] == c) & (_r26["vol"] > 0)).sum())
+                            for a, b, c in zip(_rt["origem"], _rt["destino"], _rt["produto"])]
+        orcamento["rotas"] = rec(_rt[_kr + ["n_cli_r26"] + [c for c in _rt.columns if c.endswith(("_r26", "_o27")) and
+                                  c.split("_")[0] in ("frete", "acess", "manobra", "total", "vol")] +
+                                 ["d_frete", "d_acess", "d_total", "d_manobra", "d_vol_kt", "efeito_preco_mi", "efeito_acess_mi"]].round(4))
+        _tr = _rt.sum(numeric_only=True)
+        _vol_tot_r26 = float(_r26["vol"].sum())
+        _tot = _c.sum(numeric_only=True)
+        orcamento["resumo"] = {
+            "rotas": int(len(_rt)), "cobertura_vol_rotas": float(_tr["vol_r26"] / _vol_tot_r26) if _vol_tot_r26 else None,
+            "cobertura_vol_fluxos": float(_tot["vol_r26"] / _vol_tot_r26) if _vol_tot_r26 else None,
+            "rt_total_r26": _tr["tot_r26"] / _tr["vol_r26"], "rt_total_o27": _tr["tot_o27"] / _tr["vol_o27"],
+            "rt_frete_r26": _tr["fr_r26"] / _tr["vol_r26"], "rt_frete_o27": _tr["fr_o27"] / _tr["vol_o27"],
+            "rt_acess_r26": (_tr["tot_r26"] - _tr["fr_r26"] - _tr["dp_r26"]) / _tr["vol_r26"],
+            "rt_acess_o27": (_tr["tot_o27"] - _tr["fr_o27"] - _tr["dp_o27"]) / _tr["vol_o27"],
+            "rt_vol_r26_mt": _tr["vol_r26"] / 1e6, "rt_vol_o27_mt": _tr["vol_o27"] / 1e6,
+            "rt_efeito_preco_mi": float(_rt["efeito_preco_mi"].sum()), "rt_efeito_acess_mi": float(_rt["efeito_acess_mi"].sum()),
+            "rt_acess_sobe5": int((_rt["d_acess"] > 0.05).sum()), "rt_acess_cai5": int((_rt["d_acess"] < -0.05).sum()),
+            "meses": _mr, "panorama_2027": _p27, "panorama_2026_orc": _p26o,
+            "total_r26": _tot["tot_r26"] / _tot["vol_r26"], "total_o27": _tot["tot_o27"] / _tot["vol_o27"],
+            "frete_r26": _tot["fr_r26"] / _tot["vol_r26"], "frete_o27": _tot["fr_o27"] / _tot["vol_o27"],
+            "acess_r26": (_tot["tot_r26"] - _tot["fr_r26"] - _tot["dp_r26"]) / _tot["vol_r26"],
+            "acess_o27": (_tot["tot_o27"] - _tot["fr_o27"] - _tot["dp_o27"]) / _tot["vol_o27"],
+            "vol_r26_mt": _tot["vol_r26"] / 1e6, "vol_o27_mt": _tot["vol_o27"] / 1e6,
+            "n_fluxos": int(len(_m)),
+            "n_acess_sobe5": int((_m["d_acess"] > 0.05).sum()), "n_acess_cai5": int((_m["d_acess"] < -0.05).sum()),
+        }
+        # totais do ano inteiro por panorama (todos os modais), para contexto
+        _pt_all = pd.concat([
+            q("SELECT panorama, modal, SUM(rec_total) rec, SUM(vol_tu) vol FROM vli_pnl GROUP BY panorama, modal"),
+            q("SELECT panorama, modal, SUM(rec_total) rec, SUM(vol_tu) vol FROM vli_pnl_orcamento GROUP BY panorama, modal")])
+        orcamento["panoramas"] = rec(_pt_all.assign(rec_mi=_pt_all["rec"] / 1e6, vol_mt=_pt_all["vol"] / 1e6)
+                                     [["panorama", "modal", "rec_mi", "vol_mt"]].round(1))
+except Exception as _e:
+    print("  ! orçamento 2027 indisponível no painel:", _e)
+
 # ---- 4) Rotas inativas e unidade no Painel do Cliente ----
 # rota com volume na base mas NENHUM nos 12 meses da janela (volume_hist) nem no P&L realizado
 # desde jan/2025 é "rota inativa": exibir como ativa (com ganho/ano) era a inconsistência.
@@ -2036,8 +2163,7 @@ except Exception as _e:
 # inteira (volume_hist completado pelo P&L realizado — hoje jul/2026).
 _pnl_ult = {}
 for c, o, d, per in q("""SELECT cliente, origem, destino, MAX(ano*12+mes) per FROM vli_pnl
-                         WHERE modal='Ferrovia' AND vol_tu>0 AND (panorama LIKE '%Real%'
-                               OR (panorama LIKE '2026%' AND mes<=7))
+                         WHERE modal='Ferrovia' AND vol_tu>0 AND realizado=1
                          GROUP BY cliente, origem, destino""").itertuples(index=False):
     k = (canon(c), o, d)
     _pnl_ult[k] = max(_pnl_ult.get(k, 0), int(per))
@@ -2108,6 +2234,7 @@ data = {
   "premissas_manobra_graos": premissas_manobra_graos,
   "porto_servicos": porto_servicos,
   "ficha": ficha,
+  "orcamento": orcamento,
 }
 
 # sem mascara de codinome — nome real da concessionária (VLI) exibido diretamente

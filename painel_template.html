@@ -1332,6 +1332,18 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
       </div>
       <div class="tbl-wrap freeze-cli" style="max-height:620px"><table id="tVenc"></table></div>
     </div>
+    <div class="panel">
+      <h2>Orçamento VLI 2027 contra o realizado 2026 <span class="h-hint" id="orRef"></span></h2>
+      <div class="kpis" id="orKpis" style="margin:8px 0 12px"></div>
+      <div class="desc">Ferrovia, R$/t por cliente e por fluxo, sempre nos mesmos meses do ano nos dois lados (o preço de grão é sazonal). <b>Frete + DP</b>: no P&amp;L da VLI o direito de passagem vem dentro da receita de frete (conferido contra a Ficha de Fluxo 2026: frete + DP do P&amp;L bate com o da ficha, razão mediana 1,00). <b>Acessórias</b> sem direito de passagem. <b>Efeito preço</b> = diferença de R$/t entre o orçado 2027 e o realizado 2026, vezes o volume orçado, no período: é quanto a VLI planeja receber a mais (ou a menos) só por preço. <b>Por rota</b> soma todos os clientes: o orçamento não distribui grão por cliente (em 2026 os grãos sem contrato estão em "POOL" e, no 2027 Aceite, quase todo o grão foi lançado em "ADM"), então para grão a comparação por cliente é parcial e a por rota é a que vale. Fonte: P&amp;L VLI, arquivo Precos 25_27 (uso interno, não vai para o cliente).</div>
+      <div class="controls">
+        <span class="seg"><span class="chip on" data-orv="rot">Por rota</span><span class="chip" data-orv="cli">Por cliente</span><span class="chip" data-orv="flx">Por fluxo</span></span>
+        <input type="search" id="orSearch" placeholder="Buscar cliente / produto / estação…">
+        <span class="chip" data-orf="acess">Acessória sobe mais de 5%</span>
+        <span class="muted" id="orCount"></span>
+      </div>
+      <div class="tbl-wrap freeze-cli" style="max-height:560px"><table id="tOrc"></table></div>
+    </div>
   </section>
 
   <!-- ============ PORTO E SERVIÇOS ACESSÓRIOS (pente-fino nov/2026) ============ -->
@@ -8100,6 +8112,61 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
   }catch(e){ console.error('Ficha de Fluxo 2026:', e); }
 })();
 
+/* ---------- 9) Orçamento VLI 2027 contra o realizado 2026 (Precos 25_27, nov/2026) ---------- */
+(function(){
+  try{
+    const O=D.orcamento||{}; if(!O.fluxos||!O.fluxos.length) return;
+    const R=O.resumo||{}, MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const pcv=v=>v==null||!isFinite(v)?'n/d':(v>0?'+':'')+(v*100).toFixed(1).replace('.',',')+'%';
+    const cor=v=>v==null?'':v>0.005?'color:var(--bad)':v<-0.005?'color:var(--good)':'';
+    const n2=v=>v==null||!isFinite(v)?'n/d':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const per=`jan a ${MES[(R.meses||12)-1]}`;
+    document.getElementById('orRef').textContent=`${R.panorama_2027||'2027'} × realizado 2026 · ${per} · ${R.rotas} rotas (${Math.round((R.cobertura_vol_rotas||0)*100)}% do volume realizado)`;
+    const kpi=(l,v,sub,st)=>`<div class="kpi"${st?` style="${st}"`:''}><div class="lbl">${l}</div><div class="val">${v}${sub?` <small>${sub}</small>`:''}</div></div>`;
+    const dl=(a,b)=>b/a-1;
+    NOVAS.orc={dTotal:dl(R.rt_total_r26,R.rt_total_o27), dFrete:dl(R.rt_frete_r26,R.rt_frete_o27), dAcess:dl(R.rt_acess_r26,R.rt_acess_o27),
+      dVol:dl(R.rt_vol_r26_mt,R.rt_vol_o27_mt), efTot:R.rt_efeito_preco_mi, efAc:R.rt_efeito_acess_mi, n:R.rotas, sobe:R.rt_acess_sobe5, cai:R.rt_acess_cai5, per,
+      topAc:[...(O.rotas||[])].sort((a,b)=>(b.efeito_acess_mi||0)-(a.efeito_acess_mi||0)).slice(0,3).map(r=>({label:r.produto+' '+r.origem+'→'+r.destino, efeito_acess_mi:r.efeito_acess_mi}))};
+    const N=NOVAS.orc, dest='border-color:color-mix(in oklab,var(--amber) 40%,transparent);background:var(--amber-bg)';
+    document.getElementById('orKpis').innerHTML=
+      kpi('Tarifa total orçada', pcv(N.dTotal), `R$ ${n2(R.rt_total_r26)} → ${n2(R.rt_total_o27)}/t`)+
+      kpi('Frete + DP', pcv(N.dFrete), `R$ ${n2(R.rt_frete_r26)} → ${n2(R.rt_frete_o27)}/t (base do teto)`)+
+      kpi('Acessórias (sem DP)', pcv(N.dAcess), `R$ ${n2(R.rt_acess_r26)} → ${n2(R.rt_acess_o27)}/t · ${N.sobe} rotas sobem mais de 5%`, dest)+
+      kpi('Volume', pcv(N.dVol), `${n2(R.rt_vol_r26_mt)} → ${n2(R.rt_vol_o27_mt)} Mt no período`)+
+      kpi('Efeito preço orçado', 'R$ '+N1(N.efTot)+' mi', `dos quais acessórias R$ ${N1(N.efAc)} mi · ${per}`, dest);
+    const colsBase=[
+      {k:'frete_r26',h:'Frete+DP 26',num:1,f:n2},{k:'frete_o27',h:'Frete+DP 27',num:1,f:n2},
+      {k:'d_frete',h:'Δ frete+DP',num:1,f:v=>`<span style="${cor(v)}">${pcv(v)}</span>`},
+      {k:'acess_r26',h:'Acess. 26',num:1,f:n2},{k:'acess_o27',h:'Acess. 27',num:1,f:v=>`<b>${n2(v)}</b>`},
+      {k:'d_acess',h:'Δ acess.',num:1,f:v=>`<b style="${cor(v)}">${pcv(v)}</b>`},
+      {k:'total_r26',h:'Total 26',num:1,f:n2},{k:'total_o27',h:'Total 27',num:1,f:n2},
+      {k:'d_total',h:'Δ total',num:1,f:v=>`<span style="${cor(v)}">${pcv(v)}</span>`},
+      {k:'vol_kt_r26',h:'Vol 26 kt',num:1,f:v=>N1(v)},{k:'d_vol_kt',h:'Δ vol',num:1,f:pcv},
+      {k:'efeito_preco_mi',h:'Efeito preço R$ mi',num:1,f:v=>v==null?'n/d':`<b style="${cor(v)}">${N1(v)}</b>`},
+      {k:'efeito_acess_mi',h:'… em acessórias',num:1,f:v=>v==null?'n/d':`<span style="${cor(v)}">${N1(v)}</span>`},
+    ];
+    const cli=(O.clientes||[]).map(r=>({...r, alvo:alvoSet.has(r.cliente)}));
+    const flx=(O.fluxos||[]).map(r=>({...r, rota:r.origem+'→'+r.destino, alvo:alvoSet.has(r.cliente)}));
+    const colsCli=[{k:'cliente',h:'Cliente',f:(v,r)=>v+' '+alvoPill(r.alvo)},{k:'n_fluxos',h:'Fluxos',num:1},...colsBase];
+    const colsFlx=[{k:'cliente',h:'Cliente',f:(v,r)=>v+' '+alvoPill(r.alvo)},{k:'rota',h:'Rota',f:v=>`<span class="mono">${v}</span>`},
+      {k:'produto',h:'Produto',f:v=>`<span class="muted">${escAttr(v)}</span>`},
+      {k:'manobra_r26',h:'Manobra 26',num:1,f:n2},{k:'manobra_o27',h:'Manobra 27',num:1,f:n2},...colsBase];
+    const rot=(O.rotas||[]).map(r=>({...r, cliente:'', rota:r.origem+'→'+r.destino}));
+    const colsRot=[{k:'rota',h:'Rota',f:v=>`<span class="mono">${v}</span>`},{k:'produto',h:'Produto',f:v=>`<span class="muted">${escAttr(v)}</span>`},
+      {k:'n_cli_r26',h:'Clientes 26',num:1},{k:'manobra_r26',h:'Manobra 26',num:1,f:n2},{k:'manobra_o27',h:'Manobra 27',num:1,f:n2},...colsBase];
+    let vis='rot'; const fl=new Set();
+    const tbl=document.getElementById('tOrc');
+    const apply=()=>{ const qq=(document.getElementById('orSearch').value||'').toLowerCase();
+      const base=vis==='rot'?rot:vis==='cli'?cli:flx;
+      const r=base.filter(x=>(!fl.has('acess')||x.d_acess>0.05)&&(!qq||(x.cliente+' '+(x.produto||'')+' '+(x.rota||'')).toLowerCase().includes(qq)));
+      makeTable('tOrc', r, vis==='rot'?colsRot:vis==='cli'?colsCli:colsFlx, {sort:{k:'efeito_preco_mi',dir:-1}});
+      document.getElementById('orCount').textContent=r.length+(vis==='rot'?' rotas':vis==='cli'?' clientes':' fluxos'); };
+    document.querySelectorAll('[data-orv]').forEach(c=>c.onclick=function(){ document.querySelectorAll('[data-orv]').forEach(x=>x.classList.remove('on')); this.classList.add('on'); vis=this.dataset.orv; apply(); });
+    document.querySelectorAll('[data-orf]').forEach(c=>c.onclick=function(){ const k=this.dataset.orf; fl.has(k)?fl.delete(k):fl.add(k); this.classList.toggle('on',fl.has(k)); apply(); });
+    document.getElementById('orSearch').oninput=apply; apply();
+  }catch(e){ console.error('Orçamento 2027:', e); }
+})();
+
 const RAIL_TITLES={
   basepotenciais:'Insights · Potenciais Clientes',
   horizontes:'Insights · Simulador Excel',
@@ -8295,6 +8362,9 @@ const RAIL={
       bd:`Medianas da 1ª à última vigência em ${R.nSerie} itens. ${R.nRecl} itens tiveram frete e manobra andando em sentidos opostos com o total quase igual — manobra se comporta como resíduo de negociação de preço total, não como preço de serviço.`});
     if(R&&R.exRecl) it.push({hd:'Exemplo de reclassificação', ref:R.exRecl.cliente+' · '+R.exRecl.produto+' '+R.exRecl.rota,
       bd:`Frete ${R.exRecl.dF>0?'+':''}${Math.round(R.exRecl.dF)}%, manobra ${R.exRecl.dM>0?'+':''}${Math.round(R.exRecl.dM)}%, tarifa total ${R.exRecl.dT>0?'+':''}${R.exRecl.dT.toFixed(1).replace('.',',')}%.`});
+    const Oc=NOVAS.orc;
+    if(Oc) it.push({hd:'O que a VLI orçou para 2027', ref:`Acessórias ${Oc.dAcess>0?'+':''}${(Oc.dAcess*100).toFixed(1).replace('.',',')}% · frete + DP ${Oc.dFrete>0?'+':''}${(Oc.dFrete*100).toFixed(1).replace('.',',')}%`,
+      bd:`Mesmos meses (${Oc.per}), R$/t. Efeito só de preço no período: R$ ${N1(Oc.efTot)} mi, dos quais R$ ${N1(Oc.efAc)} mi em acessórias.`+(Oc.topAc.length?' Rotas com maior alta de acessória: '+Oc.topAc.map(c=>`${c.label} (R$ ${N1(c.efeito_acess_mi)} mi)`).join(', ')+'.':'')});
     if(V) it.push({hd:'Abordar primeiro', ref:`${V.nA} fluxos prioridade A · ${BRLmi(V.ganhoA)}/ano`, bd:`Vencidos ou vencendo em até 6 meses, com ganho moderado. ${V.vencidos} fluxos já venceram e ${V.semData} não têm data final na base.`+(V.topA?` Maior: ${V.topA.cliente} ${V.topA.produto} ${V.topA.rota}.`:'')});
     return it;
   },

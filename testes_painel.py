@@ -137,7 +137,21 @@ def testes_banco():
         dup = {k: v for k, v in rotas.items() if len(v) > 1}
         ok(not dup, f"{len(dup)} rota(s) da ficha em mais de um fluxo: {list(dup.items())[:3]}")
 
-    # 10. auditoria de volume não piorou
+    # 10. P&L: orçamento fora da tabela de realizado; realizado só em panorama Real ou nos meses
+    #     realizados da tendência; um panorama por ano em vli_pnl
+    pnl_cols = [r[1] for r in q("PRAGMA table_info(vli_pnl)")]
+    if "realizado" in pnl_cols:
+        n = q("""SELECT COUNT(*) FROM vli_pnl WHERE panorama LIKE '%Orçamento%' OR panorama LIKE 'BP%'""")[0][0]
+        ok(n == 0, f"{n} linha(s) de orçamento/BP dentro de vli_pnl (deveriam estar em vli_pnl_orcamento)")
+        dup = q("""SELECT ano, COUNT(DISTINCT panorama) FROM vli_pnl GROUP BY ano HAVING COUNT(DISTINCT panorama) > 1""")
+        ok(not dup, f"mais de um panorama no mesmo ano em vli_pnl: {dup}")
+        n = q("""SELECT COUNT(*) FROM vli_pnl WHERE realizado=1 AND panorama NOT LIKE '%Real%'
+                 AND panorama NOT LIKE '%Tendência%'""")[0][0]
+        ok(n == 0, f"{n} linha(s) marcadas como realizado fora de Real/Tendência")
+    else:
+        ok(False, "coluna `realizado` ausente em vli_pnl (rode build_db.py)")
+
+    # 11. auditoria de volume não piorou
     r = subprocess.run([sys.executable, "-c", "import audit_volumes; audit_volumes.audit()"],
                        cwd=BASE, capture_output=True, text=True)
     m = re.search(r"FAIL — (\d+) instancia", r.stdout)
@@ -168,7 +182,7 @@ def testes_painel():
     d = out["dados"] or {}
     ok(d.get("pc_api"), "window.PC_API não foi criado")
     nv = d.get("novas") or {}
-    for k in ("reaj", "venc", "porto", "captura", "ficha"):
+    for k in ("reaj", "venc", "porto", "captura", "ficha", "orc"):
         ok(nv.get(k), f"aba nova sem dado: {k}")
     cli = d.get("clientes") or {}
     ok(len(cli) >= 20, f"só {len(cli)} clientes no Painel do Cliente")
