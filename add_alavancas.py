@@ -148,7 +148,9 @@ def cat(aid, grupo, titulo, norma, fonte, tipo, medida, evidencia, uso, tabela=N
                      "tabela": json.dumps(tabela, ensure_ascii=False) if tabela else None})
 
 
-GRUPOS = {"A": "Descumprimento direto da Res. ANTT 6.031/2023",
+GRUPOS = {"G": "Contrato e F-LINK contra o faturado (cliente e item)",
+          "H": "Posição do cliente na negociação",
+          "A": "Descumprimento direto da Res. ANTT 6.031/2023",
           "B": "Como a acessória é formada",
           "C": "Isonomia entre clientes",
           "D": "Direito de passagem e teto",
@@ -201,8 +203,12 @@ def _serv(s):
     s = na(s)
     if s.startswith("MANOBRA"):
         return ["MANOBRA"]
-    if s.startswith("TRANSBORDO") or s.startswith("BALDEAC"):
-        return ["TRANSBORDO", "BALDEACAO"]
+    # varredura 24/nov/2026: baldeação e transbordo são serviços diferentes na própria tabela; a de
+    # 2026 não traz mais coluna de baldeação, então baldeação cobrada fica sem indicador publicado
+    if s.startswith("BALDEAC"):
+        return ["BALDEACAO"]
+    if s.startswith("TRANSBORDO"):
+        return ["TRANSBORDO"]
     if s in ("CARGA", "DESCARGA"):
         return ["CARGA E DESCARGA", "CARREGAMENTO"]
     return []
@@ -334,8 +340,9 @@ cat(4, "A", "Mudança de preço sem aviso de 20 dias",
     f"{ni(len(_ch))} mudanças de preço de manobra e transbordo de um mês para o seguinte em 2026, em {ni(_ch['item'].nunique())} itens "
     f"de {_ch['cliente'].nunique()} clientes; {ni(int(_ch['sobe'].sum()))} são aumentos; "
     f"{ni(int((_ci['meses'] >= 6).sum()))} itens mudaram em seis meses ou mais.",
-    "Pedir ao cliente os comprovantes de aviso de cada mudança. Onde o contrato fixa fórmula, conferir se a "
-    "mudança segue a fórmula; onde não fixa, mudança sem aviso de 20 dias é descumprimento.")
+    "Boa parte das mudanças é contratual: o contrato-padrão (cl. 3.5) reajusta 30% da tarifa todo mês pelo diesel "
+    "do fornecedor da VLI. A tese passa a ser a comprovação do índice (alavanca 44); mudança fora da fórmula ou sem "
+    "aviso de 20 dias, onde o contrato não prevê fórmula, segue sendo descumprimento.")
 
 # ------------------------------------------------------------------ 5. manobra de conexão
 def r_conexao(d):
@@ -433,7 +440,9 @@ cat(8, "B", "Faixa da manobra muda por cliente",
     + ". Valor = manobra acima da menor faixa paga por pelo menos 2 clientes da mesma classe na mesma ferrovia (farelo só com farelo: "
     + ", ".join(f"{fe} {'farelo' if cl == 'FARELO' else 'soja e milho'} {v}%" for (cl, fe), v in sorted(BASE_FAIXA.items()))
     + "), mês a mês, vezes o volume.",
-    "Pedir isonomia com a menor faixa da ferrovia. Para clientes em 12% e 18% é a alavanca de maior valor.")
+    "Atenção: no contrato-padrão (cl. 3.2) a manobra é uma fatia da tarifa única. Baixar a faixa sem baixar o total só "
+    "move dinheiro para o frete; o valor é a parcela realocável, não desembolso. Usar junto com a isonomia da tarifa "
+    "total (alavanca 38) e com o faturado contra o contrato (alavanca 36).")
 
 # ------------------------------------------------------------------ 9, 10, 16: P&L ferroviário
 _ALIAS = {"COQUE VERDE PETROLEO": "COQUE PETROLEO"}
@@ -449,10 +458,16 @@ def normp(p):
     return _ALIAS.get(j, j)
 
 
-P = q("""SELECT ano, mes, cliente, origem, destino, mercadoria, rec_fr, rec_man, rec_trbd, rec_dp, rec_total, vol_tu
+P = q("""SELECT ano, mes, cliente, origem, destino, mercadoria, rec_fr, rec_man, rec_trbd, rec_dp, rec_total, vol_tu,
+                COALESCE(imp_icms,0)+COALESCE(imp_iss,0)+COALESCE(imp_pis,0)+COALESCE(imp_cofins,0) imp
          FROM vli_pnl WHERE modal='Ferrovia' AND realizado=1""")
-for c in ("rec_fr", "rec_man", "rec_trbd", "rec_dp", "rec_total", "vol_tu"):
+for c in ("rec_fr", "rec_man", "rec_trbd", "rec_dp", "rec_total", "vol_tu", "imp"):
     P[c] = pd.to_numeric(P[c], errors="coerce").fillna(0.0)
+# varredura 24/nov/2026: o P&L é bruto (ICMS e PIS/COFINS dentro). Para comparar clientes, a receita
+# vai líquida de tributos linha a linha (cliente com e sem o regime de exportador ficam comparáveis)
+_liq = np.where(P["rec_total"] > 0, 1 + P["imp"] / P["rec_total"], 1.0)
+for c in ("rec_fr", "rec_man", "rec_trbd", "rec_dp", "rec_total"):
+    P[c] = P[c] * _liq
 P["cli"] = P["cliente"].map(canon)
 P["prod"] = P["mercadoria"].map(normp)
 _ULT = int(P.loc[P["ano"] == P["ano"].max(), "mes"].max())
@@ -491,8 +506,8 @@ cat(9, "B", "O salto da manobra em março de 2024",
     f"com volume de {br(_ano.at[2023, 'vol_tu'] / 1e6, 1)} para {br(_ano.at[2024, 'vol_tu'] / 1e6, 1)} Mt e frete por tonelada "
     f"{br((_ano.at[2024, 'fr_t'] / _ano.at[2023, 'fr_t'] - 1) * 100, 1)}%. IPOA da ferrovia de {pct(_ano.at[2023, 'ipoa'])} para "
     f"{pct(_ano.at[2024, 'ipoa'])}. Em {len(J)} rotas a manobra subiu mais de R$ 5/t; valor = aumento de R$/t vezes o volume de 2024.",
-    "Pedir ao cliente o aviso do aumento de março de 2024 e a justificativa de custo. O aumento entrou pela "
-    "parcela sem teto: é o argumento mais forte de preço abusivo.",
+    "Pedir ao cliente o aviso do aumento de março de 2024 e a justificativa de custo. Parte foi devolvida em 2026 "
+    "(alavanca 39: o preço do grão caiu nos últimos 12 meses, de forma desigual entre clientes). Valores líquidos de tributos.",
     {"cols": ["Mês", "Manobra R$/t 2023", "Manobra R$/t 2024"],
      "rows": [[MESES[m - 1], round(float(_mm24.at[(2023, m), "t"]), 2), round(float(_mm24.at[(2024, m), "t"]), 2)]
               for m in range(1, 13) if (2023, m) in _mm24.index and (2024, m) in _mm24.index]})
@@ -544,7 +559,8 @@ cat(11, "B", "Manobra acompanha o frete mês a mês",
     "Res. ANTT 6.031/2023, arts. 15 e 16 (preço de serviço, não do frete)", F_FICHA, "ficha_acomp", "contagem",
     "Itens em que o frete variou mais de 5% no ano e a manobra mudou junto. Serviço com preço de custo não "
     "mudaria com a sazonalidade do frete (mesmo critério da aba Ficha de Fluxo 2026).",
-    "Reforça as alavancas 7 e 8: a manobra é parte do preço do frete fora do teto.")
+    "Decorre de a manobra ser percentual da tarifa (cl. 3.2 do contrato-padrão) e de a tarifa ser reajustada todo mês "
+    "(cl. 3.5). Serve de prova de que a manobra é parte do preço, não serviço com custo próprio.")
 cat(12, "B", "Troca entre frete e acessória com o total parado",
     "Decreto 1.832/1996 e Res. ANTT 6.031/2023 (teto sobre o frete; acessória fora do teto)", F_FICHA, "ficha_troca", "contagem",
     "Meses seguidos em que frete e acessória andaram em sentidos opostos com a tarifa total variando menos de 1%. "
@@ -678,18 +694,19 @@ def r_dp_reaj(d):
     return a
 
 
-L18 = aplica(r_dp_misto)
+L18 = aplica(r_dp_misto, so_ref=True).assign(excesso=0.0)
 L19 = aplica(r_dp)
 L21 = aplica(r_dp_reaj)
 guarda_linhas(18, L18)
 guarda_linhas(19, L19)
 guarda_linhas(21, L21)
 cat(18, "C", "Direito de passagem cobrado de uns e não de outros na mesma rota",
-    "Lei 10.233/2001, art. 25 VIII; Res. ANTT 5.943/2021", F_FICHA, "linhas", "rs_ano",
+    "Lei 10.233/2001, art. 25 VIII; Res. ANTT 5.943/2021", F_FICHA, "evidencia", "contagem",
     f"{len(_mix)} rotas em que parte dos itens paga DP e parte não: "
     + "; ".join(f"{o}→{de} ({int(r.n - r.com)} de {int(r.n)} sem DP)" for (o, de), r in _mix.sort_values("n", ascending=False).head(4).iterrows())
-    + ". Valor = DP pago pelos itens dessas rotas, vezes o volume.",
-    "Pedir o mesmo tratamento dado aos itens sem DP na mesma rota. Sem nome de outro cliente na peça.")
+    + ". Não é ganho: quem não paga DP paga frete maior que o frete + DP dos demais (mediana de R$ 24/t a mais, "
+      "varredura de 24/nov/2026). Serve de prova de que existe contrato com DP embutido no frete.",
+    "Usar como argumento de que o DP pode ser negociado dentro do frete (alavanca 19), não como pedido de isonomia.")
 _dpf = SVM[(SVM["categoria"] == "dp") & (SVM["valor"] > 0)].groupby("ferrovia")["valor"].agg(["median", "count"])
 cat(19, "D", "Direito de passagem cobrado do cliente",
     "Decreto 1.832/1996, art. 6º e art. 17 §5º (tarifa única ao usuário); Res. ANTT 5.943/2021 (DP é relação entre ferrovias)",
@@ -706,7 +723,8 @@ cat(21, "D", "Direito de passagem reajustado no meio do ano",
     + "; ".join(f"{f} de R$ {br(r.dropna().iloc[0])} para R$ {br(r.dropna().iloc[-1])}"
                 for f, r in _dpmes.iterrows() if abs(r.dropna().iloc[-1] - r.dropna().iloc[0]) >= 0.05)
     + ". Valor = aumento do DP no ano, vezes o volume.",
-    "Pedir o contrato operacional entre as ferrovias (LAI ou exibição) para medir quanto a VLI paga e quanto repassa.",
+    "O DP é repassado a custo: no P&L de 2025 a VLI pagou R$ 353,6 mi de DP e as rotas casadas mostram diferença "
+    "de 1% a 4% entre cobrado e pago. A tese é de transparência (contrato operacional, LAI ou exibição), não de margem.",
     {"cols": ["Ferrovia"] + [MESES[m - 1] for m in _dpmes.columns],
      "rows": [[f] + [None if pd.isna(v) else round(float(v), 2) for v in r] for f, r in _dpmes.iterrows()]})
 
@@ -731,7 +749,9 @@ L22 = pd.DataFrame({"item": L22["item"], "servico": "FRETE + DP", "ferrovia": L2
 guarda_linhas(22, L22)
 cat(22, "D", "Qual teto vale em rota de duas concessões",
     "Decreto 1.832/1996, arts. 17 e 18; Res. ANTT 5.943/2021", F_FICHA, "evidencia", "contagem",
-    f"{ni(len(L22))} itens têm frete em duas ferrovias; a VLI aplica um teto só ao percurso inteiro. "
+    f"{ni(len(L22))} itens têm frete em duas ferrovias; a VLI aplica a tabela da ferrovia de origem sobre o km total. "
+    "Conforme a regra que a ANTT adotar, o efeito vai de zero (soma dos tetos por trecho) a cerca de R$ 122 mi/ano "
+    "(menor tabela no percurso inteiro); trecho a trecho, R$ 49 mi (Usiminas e LD Celulose). "
     + f"{int((REF['pct_teto'] >= 0.9).sum())} itens estão a 90% ou mais do teto.",
     "Consulta formal à ANTT sobre o teto aplicável. Prioridade para itens a 90% ou mais do teto.")
 
@@ -778,8 +798,8 @@ cat(25, "E", "Take or pay cobrado",
 # ------------------------------------------------------------------ 26. porto (número da aba Porto)
 cat(26, "E", "Porto",
     "Lei 10.233/2001, art. 25; base regulatória da ANTAQ a validar", F_PNL, "porto", "rs_ano",
-    "R$/t de cada cliente no porto contra o menor par no mesmo porto e produto (mesmo número da aba Porto e Serviços Acessórios). "
-    "É teto superior: o escopo do serviço portuário pode diferir entre clientes.",
+    "R$/t de cada cliente no terminal, líquido de ICMS, ISS e PIS/COFINS, contra o menor par no mesmo terminal e produto "
+    "(mesmo número da aba Porto e Serviços Acessórios). É teto superior: o escopo do serviço portuário pode diferir entre clientes.",
     "Usar para escolher onde abrir o contrato portuário, não como número de proposta.")
 
 # ------------------------------------------------------------------ 27. orçamento 2027
@@ -857,7 +877,9 @@ except Exception as e:
 cat(29, "F", "Contratos vencidos e sem data final",
     "Res. ANTT 6.031/2023, art. 17 (preço contratado segue o contrato; vencido, vale a tabela e o aviso)",
     "Painel do Cliente (vigência dos fluxos)", "contratos", "contagem",
-    "Fluxos do Painel do Cliente com vigência vencida ou sem data final na base (mesma contagem da aba Reajustes e Vencimentos).",
+    "Fluxos do Painel do Cliente com vigência vencida ou sem data final na base (mesma contagem da aba Reajustes e Vencimentos). "
+    "Fluxo com cadastro vencido mas faturando no mês de referência da Ficha 2026 não conta: o contrato foi renovado e só a "
+    "data ficou velha (79 de 118 casos na varredura de 24/nov/2026).",
     "Janela de renegociação aberta: entrar antes de a VLI renovar com preço novo.")
 cat(30, "F", "Custo da manobra contra o preço cobrado",
     "Res. ANTT 6.031/2023, art. 15 (preço abusivo; referência de custo)", "Modelo de custo da aba Novo Negócio · Manobras",
@@ -866,12 +888,633 @@ cat(30, "F", "Custo da manobra contra o preço cobrado",
     "R$ 17/t cobrados em média. A diferença por cliente e estação está na aba Novo Negócio.",
     "Sustenta a alternativa de o cliente assumir a manobra. Premissa de custo fixo ainda em aberto.")
 
+# ==================================================================================================
+# ALAVANCAS 31 A 46: cliente e item, com documento (varredura de 24/nov/2026)
+# Pedido do sócio: as teses gerais "são itens conhecidos no mercado"; o que vale é onde a VLI se
+# afasta do próprio documento (tela F-LINK do cliente, contrato assinado, tabela publicada vigente
+# no mês, faturamento da Ficha) e a posição de cada cliente na negociação. Pela regra do sócio a
+# manobra NÃO entra no teste do teto e o PIS/COFINS zerado dos exportadores de grão é regime
+# conhecido: nenhuma das duas teses entra aqui.
+# ==================================================================================================
+import datetime as _dt
+
+# ---- volume mensal por cliente × rota × produto (volume_hist completado pelo P&L realizado)
+_vh = q("""SELECT cliente, origem, destino, mercadoria produto, ano, mes, SUM(realizado_ktu)*1000 t
+           FROM volume_hist WHERE realizado_ktu > 0 GROUP BY 1,2,3,4,5,6""")
+_vp = q("""SELECT cliente, origem, destino, mercadoria produto, ano, mes, SUM(vol_tu) t
+           FROM vli_pnl WHERE modal='Ferrovia' AND realizado=1 GROUP BY 1,2,3,4,5,6 HAVING SUM(vol_tu) > 0""")
+for _d in (_vh, _vp):
+    _d["cliente"] = _d["cliente"].map(canon)
+    _d["produto"] = _d["produto"].map(normp)
+    _d["t"] = pd.to_numeric(_d["t"], errors="coerce").fillna(0.0)
+_k6 = ["cliente", "origem", "destino", "produto", "ano", "mes"]
+_vh = _vh.groupby(_k6, as_index=False)["t"].sum()
+_vp = _vp.groupby(_k6, as_index=False)["t"].sum()
+_tem = set(zip(*[_vh[c] for c in _k6]))
+_vp = _vp[[k not in _tem for k in zip(*[_vp[c] for c in _k6])]]
+_VV = pd.concat([_vh, _vp])
+_VV["per"] = _VV["ano"] * 12 + _VV["mes"]
+_VIDX = {}
+for (c, o, d, p, per), t in _VV.groupby(["cliente", "origem", "destino", "produto", "per"])["t"].sum().items():
+    _VIDX.setdefault((c, o, d), {}).setdefault(p, {})[int(per)] = float(t)
+PER_MAX = int(_VV["per"].max())
+
+
+def vol_mes(c, o, d, prod, per):
+    """t no mês `per` (ano*12+mês); produto pelo nome normalizado, com prefixo único (regra do volume)."""
+    n = _VIDX.get((c, o, d))
+    if not n:
+        return 0.0
+    f = normp(prod)
+    if f not in n:
+        cands = [x for x in n if x.startswith(f) or f.startswith(x)]
+        if len(cands) != 1:
+            return 0.0
+        f = cands[0]
+    return n[f].get(int(per), 0.0)
+
+
+def lbl_per(per):
+    a, m = (per - 1) // 12, (per - 1) % 12 + 1
+    return f"{MESES[m - 1]}/{a}"
+
+
+# ---- regime de PIS/COFINS por cliente × família (mesma regra do build_painel: ALIQ_PC)
+_pcq = q("""SELECT cliente, mercadoria, SUM(rec_total) rec, SUM(COALESCE(imp_pis,0)+COALESCE(imp_cofins,0)) pc
+            FROM vli_pnl WHERE modal='Ferrovia' AND realizado=1
+              AND (ano*12+mes) > (SELECT MAX(ano*12+mes) FROM vli_pnl WHERE realizado=1 AND modal='Ferrovia') - 12
+            GROUP BY cliente, mercadoria""")
+for _c in ("rec", "pc"):
+    _pcq[_c] = pd.to_numeric(_pcq[_c], errors="coerce").fillna(0.0)
+
+
+def fam_pc(p):
+    s_ = na(p).strip()
+    if s_.startswith("FARELO"): return "FARELO"
+    if s_.startswith("SOJA") or s_.startswith("MILHO"): return "GRAOS"
+    if s_.startswith("ACUCAR"): return "ACUCAR"
+    return s_.split(" ")[0] if s_ else ""
+
+
+_pcq["cliente"] = _pcq["cliente"].map(canon)
+_pcq["fam"] = _pcq["mercadoria"].map(fam_pc)
+_pcq = _pcq.groupby(["cliente", "fam"])[["rec", "pc"]].sum()
+_pcq = _pcq[_pcq["rec"] >= 1e6]
+_ALIQ = {k: float(-r.pc / r.rec) for k, r in _pcq.iterrows() if -r.pc / r.rec >= 0.05}
+aliq = lambda c, p: _ALIQ.get((c, fam_pc(p)), 0.0)
+
+# ---- telas F-LINK mineradas: todas as vigências, com componentes e TR ANTT
+_TAB_CLI = {"novaagri": "NOVA AGRI", "ldcelulose": "LD CELULOSE", "alesat": "ALE", "selecta_farelo": "SELECTA",
+            "acucar_novos_clientes": None}
+_fl = []
+for _t in [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%\\_precos\\_contratuais' ESCAPE '\\'")]:
+    _d = q(f'SELECT * FROM "{_t}"')
+    _cols = list(_d.columns)
+    _ic = "item_ferroviario" if "item_ferroviario" in _cols else ("item" if "item" in _cols else None)
+    if _ic is None or "vigencia_inicial" not in _cols:
+        continue
+    _num = lambda cs: _d[cs].apply(pd.to_numeric, errors="coerce").fillna(0.0).sum(axis=1) if cs else pd.Series(0.0, index=_d.index)
+    _fr = [c for c in _cols if re.fullmatch(r"frete(_rs_t)?|frete_(fca|efvm|fns|vli|mrs)_rs_t", c)]
+    _frc = ["frete_rs_t"] if "frete_rs_t" in _fr else _fr
+    _vi = _d["vigencia_inicial"].astype(str).str[:10]
+    _dt1 = pd.to_datetime(_vi, errors="coerce", format="%Y-%m-%d")
+    _dt1 = _dt1.fillna(pd.to_datetime(_vi, errors="coerce", format="%d/%m/%Y"))
+    _base = _t.replace("_precos_contratuais", "")
+    if "cliente" in _cols:
+        _cli = _d["cliente"].map(canon)
+    else:
+        _cli = pd.Series(_TAB_CLI.get(_base) or canon(_base.upper()), index=_d.index)
+    _fl.append(pd.DataFrame({
+        "tab": _base, "cli": _cli, "item": pd.to_numeric(_d[_ic], errors="coerce"),
+        "contrato": _d.get("contrato"), "o": _d.get("origem"), "d": _d.get("destino"), "prod": _d.get("produto"),
+        "vi": _dt1, "frete": _num(_frc), "dp": _num([c for c in _cols if "direito_passagem" in c]),
+        "mo": _num([c for c in _cols if c.startswith("manobra_origem")]),
+        "md": _num([c for c in _cols if c.startswith("manobra_destino")]),
+        "outras": _num([c for c in _cols if c.startswith("descarga") or c.startswith("manobra_conexao")]),
+        "tr": pd.to_numeric(_d.get("valor_tr_antt"), errors="coerce"),
+        "tarifa": pd.to_numeric(_d.get("tarifa_contrato"), errors="coerce")}))
+FL = pd.concat(_fl, ignore_index=True).dropna(subset=["item", "vi"])
+FL["item"] = FL["item"].astype(int)
+FL["per"] = FL["vi"].dt.year * 12 + FL["vi"].dt.month
+# linha suspeita de coluna trocada na transcrição (mesma regra do rastreador de reajustes)
+FL["susp"] = (FL["frete"] < FL["mo"] + FL["md"]) & (FL["frete"] < 0.3 * FL["tarifa"].fillna(1e9))
+FL = FL[~FL["susp"]].copy()
+# a tarifa da tela às vezes vem sem um componente (Mosaic: sem a descarga até abr/2026): vale o maior
+FL["tot"] = np.maximum(FL["tarifa"].fillna(0.0), FL["frete"] + FL["dp"] + FL["mo"] + FL["md"] + FL["outras"])
+_n_it_fl = FL.groupby(["cli", "o", "d", "prod"])["item"].transform("nunique")
+FL["n_it"] = _n_it_fl
+FL = FL.sort_values(["tab", "item", "vi"])
+_ULT_TAB = FL.groupby("tab")["per"].max().to_dict()
+
+
+def _meses_vig(g):
+    """Cada vigência vale do mês de início até o mês anterior à vigência seguinte (no máximo 3 meses)."""
+    pers = list(g["per"])
+    out = []
+    for i, p0 in enumerate(pers):
+        p1 = pers[i + 1] if i + 1 < len(pers) else p0 + 1
+        out.append(list(range(p0, min(max(p1, p0 + 1), p0 + 3))))
+    return out
+
+
+# ---------------------------------------------------------------- 31. frete + DP acima do TR na tela F-LINK
+_x = FL[(FL["tr"] > 0) & (FL["frete"] > 0)].copy()
+_x["base"] = _x["frete"] + _x["dp"]
+_x["exc"] = _x["base"] - _x["tr"]
+_r31 = []
+for (tab, it), g in _x.groupby(["tab", "item"]):
+    g = g.drop_duplicates("per", keep="last")
+    for (_, r), ms in zip(g.iterrows(), _meses_vig(g)):
+        if r["base"] <= r["tr"] * 1.005:
+            continue
+        v = sum(vol_mes(r["cli"], r["o"], r["d"], r["prod"], m) for m in ms) / max(1, r["n_it"])
+        _r31.append({"cli": r["cli"], "item": it, "o": r["o"], "d": r["d"], "prod": r["prod"], "per": r["per"],
+                     "base": r["base"], "tr": r["tr"], "exc": r["exc"], "pct": r["base"] / r["tr"] - 1, "valor": r["exc"] * v})
+R31 = pd.DataFrame(_r31)
+if len(R31):
+    for cli, h in R31.groupby("cli"):
+        its = h.groupby(["item", "o", "d", "prod"]).agg(de=("per", "min"), ate=("per", "max"), pmax=("pct", "max")).reset_index()
+        guarda_cliente(31, cli, h["valor"].sum(), its["item"].nunique(), ("sem volume casado na rota (produto da tela diferente do "
+                       "volume ou rota sem tráfego): valor zero honesto; " if h["valor"].sum() <= 0 else "") + "; ".join(
+            f"item {int(r.item)} {str(r.prod).lower()} {r.o}→{r.d}: {lbl_per(r.de)} a {lbl_per(r.ate)}, até {pct(r.pmax, 1)} acima do TR"
+            for r in its.sort_values("pmax", ascending=False).head(4).itertuples()))
+cat(31, "G", "Frete + DP acima do teto na tela F-LINK do próprio cliente",
+    "Teto do contrato de concessão (Tabela Tarifária, Decisões SUFER); Decreto 1.832/1996; Código Civil, art. 876 (repetição)",
+    "Telas F-LINK do cliente (preço contratual vigência a vigência, com o TR ANTT da própria tela)", "cliente", "rs_periodo",
+    (f"{len(R31)} vigências em {R31['item'].nunique()} itens de {R31['cli'].nunique()} clientes com frete + DP acima do TR ANTT "
+     "mostrado na mesma tela. Caso típico: ArcelorMittal item 14399 (fio máquina VTU→EPI), 5% a 13,6% acima de ago/2023 a "
+     "nov/2024; em dez/2024 o frete cai exatamente para o TR (R$ 79,65) e a manobra de destino sobe R$ 6,55 no mesmo mês. "
+     "Valor = excesso de cada vigência vezes o volume real do mês, dividido entre os itens do cliente na rota."
+     if len(R31) else "Nenhuma vigência acima do TR."),
+    "Prova é do próprio cliente (tela F-LINK). Pedir a devolução do excesso do período e conferir a troca frete por manobra "
+    "no mês em que o frete encosta no teto.")
+
+# ---------------------------------------------------------------- 32. orçamento 2027: frete + DP acima do teto
+try:
+    _pan = [r[0] for r in con.execute("SELECT DISTINCT panorama FROM vli_pnl_orcamento")]
+    _p27b = next(p for p in _pan if p.startswith("2027") and "Aceite" in p)
+    _o = q(f"""SELECT cliente, origem, destino, mercadoria, SUM(rec_fr) fr, SUM(rec_dp) dp, SUM(rec_total) tot,
+                      SUM(vol_tu) vol, SUM(COALESCE(imp_icms,0)) icms
+               FROM vli_pnl_orcamento WHERE modal='Ferrovia' AND panorama='{_p27b}' GROUP BY 1,2,3,4""")
+    for c in ("fr", "dp", "tot", "vol", "icms"):
+        _o[c] = pd.to_numeric(_o[c], errors="coerce").fillna(0.0)
+    _o["cli"] = _o["cliente"].map(canon)
+    _o["prod"] = _o["mercadoria"].map(normp)
+    _o = _o.groupby(["cli", "origem", "destino", "prod"], as_index=False)[["fr", "dp", "tot", "vol", "icms"]].sum()
+    _o = _o[_o["vol"] >= 10000]
+    _tt = REF.assign(prod=REF["produto"].map(normp)).groupby(["origem", "destino", "prod"])["teto"].max().rename("teto").reset_index()
+    _o = _o.merge(_tt, on=["origem", "destino", "prod"])
+    # o P&L traz receita com ICMS em fluxo interno; a ficha e o teto estão sem ICMS
+    _o["fr27"] = (_o["fr"] + _o["dp"]) / _o["vol"] * (1 - (_o["icms"].abs() / _o["tot"]).clip(0, 0.25))
+    _a = _o[_o["fr27"] > _o["teto"] + 0.005].copy()
+    _a["valor"] = (_a["fr27"] - _a["teto"]) * _a["vol"]
+    for cli, h in _a.groupby("cli"):
+        guarda_cliente(32, cli, h["valor"].sum(), len(h), "; ".join(
+            f"{r.prod.lower()} {r.origem}→{r.destino}: frete + DP orçado R$ {br(r.fr27)} contra teto R$ {br(r.teto)}"
+            for r in h.sort_values("valor", ascending=False).head(3).itertuples()))
+    cat(32, "G", "Orçamento 2027 da VLI com frete + DP acima do teto",
+        "Teto do contrato de concessão; Res. ANTT 6.031/2023, art. 17 (aviso de 20 dias)",
+        f"Orçamento VLI {_p27b}, uso interno", "cliente", "rs_periodo",
+        f"{len(_a)} rotas em que o frete + DP orçado para 2027, líquido de ICMS, passa do teto atual da rota. "
+        "Gerdau carvão VTU→VOB e Selecta farelo EBJ→IUF são os maiores: a VLI orçou como frete o que hoje fatura como "
+        "acessória. Valor = excesso sobre o teto vezes o volume orçado no ano.",
+        "Avisar o cliente antes da renegociação de 2027: um preço de 2027 com frete acima do teto não pode ser aceito; "
+        "pedir a composição antes de assinar.")
+except Exception as e:
+    cat(32, "G", "Orçamento 2027 da VLI com frete + DP acima do teto", "Teto do contrato de concessão", "Orçamento VLI 2027",
+        "descritivo", "nenhuma", f"Orçamento 2027 indisponível ({e}).", "")
+
+# ---------------------------------------------------------------- 33 e 34. contratos lidos contra a Ficha
+# Contratos-padrão VLI lidos na íntegra (07_Dados VLI): C_2025_175 (Czarnikow) e C_2026_2 (Agrícola
+# Alvorada). Cl. 3.2: manobra de origem e de destino = 5% da tarifa na FCA e 8% na FNS, cada uma.
+# Nenhum dos dois tem cláusula de direito de passagem. Cl. 3.4: nova acessória só com aditivo.
+CONTRATOS_LIDOS = {"CZARNIKOW": "C_2025_175", "ALVORADA": "C_2026_2"}
+PCT_CONTRATO = {"FCA": 5.0, "FNS": 8.0}
+
+
+def r_contrato_manobra(d):
+    a = d[d["cliente"].isin(CONTRATOS_LIDOS) & d["servico"].isin(MANOBRAS) & (d["valor"] > 0)
+          & d["ferrovia"].isin(PCT_CONTRATO)].copy()
+    a["total"] = [TOT_MES.get((int(i), int(mm))) for i, mm in zip(a["item"], a["mes"])]
+    a = a[a["total"].notna() & (a["total"] > 0)]
+    a["pc"] = a["ferrovia"].map(PCT_CONTRATO)
+    a["cobrado"] = a["valor"]
+    a["referencia"] = a["pc"] / 100 * a["total"]
+    a["excesso"] = (a["valor"] - a["referencia"]).clip(lower=0)
+    a["detalhe"] = ((a["valor"] / a["total"] * 100).round(1).astype(str).str.replace(".", ",", regex=False) + "% da tarifa contra "
+                    + a["pc"].astype(int).astype(str) + "% da cl. 3.2 do contrato " + a["cliente"].map(CONTRATOS_LIDOS))
+    return a
+
+
+def r_contrato_dp(d):
+    a = d[d["cliente"].isin(CONTRATOS_LIDOS) & (d["categoria"] == "dp") & (d["valor"] > 0)].copy()
+    a["cobrado"] = a["valor"]
+    a["referencia"] = 0.0
+    a["excesso"] = a["valor"]
+    a["detalhe"] = "DP " + a["ferrovia"] + " faturado; contrato " + a["cliente"].map(CONTRATOS_LIDOS) + " sem cláusula de direito de passagem"
+    return a
+
+
+L33 = aplica(r_contrato_manobra)
+L34 = aplica(r_contrato_dp)
+guarda_linhas(33, L33)
+guarda_linhas(34, L34)
+cat(33, "G", "Manobra faturada acima do percentual do contrato",
+    "Contrato-padrão VLI, cl. 3.2 e 3.4; Código Civil, arts. 112, 113 e 876", "Contratos C_2025_175 e C_2026_2 contra a Ficha 2026",
+    "linhas", "rs_ano",
+    f"Contratos lidos: {', '.join(f'{c} ({n})' for c, n in CONTRATOS_LIDOS.items())}. A cl. 3.2 fixa a manobra de origem e a de "
+    "destino em 5% da tarifa na FCA e 8% na FNS. "
+    + (f"{L33['item'].nunique()} itens faturados acima do percentual: "
+       + "; ".join(f"{INFO[r.item]['cliente']} {slbl(r.servico)} {INFO[r.item]['origem']}→{INFO[r.item]['destino']} {r.detalhe.split(' contra')[0]}"
+                   for r in L33.drop_duplicates(["servico"]).head(3).itertuples()) + "."
+       if len(L33) else "Nenhum item acima do percentual contratado."),
+    "Dinheiro com documento: pedir a devolução da manobra acima do percentual contratado. Vale para todo cliente cujo "
+    "contrato a LogConsult ler; hoje há dois contratos na base.")
+cat(34, "G", "Direito de passagem faturado sem cláusula no contrato",
+    "Contrato-padrão VLI, cl. 3.4 (nova cobrança só com aditivo); Decreto 1.832/1996, art. 6º; Res. ANTT 5.943/2021",
+    "Contratos C_2025_175 e C_2026_2 contra a Ficha 2026", "linhas", "rs_ano",
+    f"Nenhum dos dois contratos lidos tem cláusula de DP; a Ficha fatura DP em {L34['item'].nunique()} itens "
+    f"({', '.join(sorted({INFO[i]['cliente'] for i in L34['item']}))}). A Czarnikow (C_2025_175) tem DP EFC de R$ 14,78/t em "
+    "25 de 25 itens no último mês faturado (set/2026); esses itens estão sem preço recente na Ficha e ficam fora das linhas.",
+    "Pedir a devolução do DP faturado sem previsão contratual ou o aditivo que o autorize.")
+
+# ---------------------------------------------------------------- 35. manobra acima do máximo publicado vigente no mês
+# Tabela publicada anterior da VLI (no site em set/2025, referência out/2024): manobra de "Grão e
+# Açúcar" com máximo de R$ 35,00 na FCA e na FNS. A de 2026 (referência out/2025) subiu para R$ 120.
+_MAX_ANT = None
+try:
+    _arq = BASE.parent / "02_Regulatorio_Tetos" / "Tabelas_Acessorias" / "_Arquivo" / "Tabelas-Acessorias-VLI-set25.xlsx"
+    _mx = []
+    for _sh in ("FCA", "FNS"):
+        _t = pd.read_excel(_arq, sheet_name=_sh, header=None)
+        _row = _t[_t.iloc[:, 1].astype(str).str.contains("Gr[ãa]o", regex=True)]
+        if len(_row):
+            _mx.append(float(_row.iloc[0, 5]))
+    _MAX_ANT = max(_mx) if _mx else None
+except Exception as e:
+    print("  ! tabela publicada anterior indisponível:", e)
+_GRAO_ACUCAR = lambda p: bool(re.match(r"(SOJA|MILHO|FARELO|ACUCAR|AÇÚCAR)", str(p or "").upper()))
+_r35 = []
+if _MAX_ANT:
+    _y = FL[FL["prod"].map(_GRAO_ACUCAR) & (FL["vi"] >= "2024-10-01") & (FL["vi"] < "2026-01-01")]
+    for (tab, it), g in _y.groupby(["tab", "item"]):
+        g = g.drop_duplicates("per", keep="last")
+        for (_, r), ms in zip(g.iterrows(), _meses_vig(g)):
+            exc = max(0.0, r["mo"] - _MAX_ANT) + max(0.0, r["md"] - _MAX_ANT)
+            if exc <= 0.005:
+                continue
+            v = sum(vol_mes(r["cli"], r["o"], r["d"], r["prod"], m) for m in ms if m < 2026 * 12 + 1) / max(1, r["n_it"])
+            _r35.append({"cli": r["cli"], "item": it, "o": r["o"], "d": r["d"], "prod": r["prod"], "per": r["per"],
+                         "mo": r["mo"], "md": r["md"], "exc": exc, "valor": exc * v})
+R35 = pd.DataFrame(_r35)
+for cli, h in (R35.groupby("cli") if len(R35) else []):
+    guarda_cliente(35, cli, h["valor"].sum(), h["item"].nunique(), "; ".join(
+        f"item {int(r.item)} {str(r.prod).lower()} {r.o}→{r.d}: manobra até R$ {br(max(r.mo, r.md))} em {lbl_per(r.per)}"
+        for r in h.sort_values("exc", ascending=False).drop_duplicates("item").head(3).itertuples()))
+cat(35, "G", "Manobra acima do máximo publicado que valia no mês",
+    "Res. ANTT 6.031/2023, art. 16 §3º (cobrança acima do máximo publicado)",
+    "Tabela publicada VLI anterior (set/2025) e telas F-LINK do cliente", "cliente", "rs_periodo",
+    (f"A tabela publicada anterior da VLI trazia manobra de grão e açúcar com máximo de R$ {br(_MAX_ANT)}; a de 2026 subiu para "
+     f"R$ 120,00. {len(R35)} vigências de 2025 cobraram acima do máximo da época, em {R35['cli'].nunique() if len(R35) else 0} clientes. "
+     "Valor = excesso sobre o máximo vezes o volume real do mês da vigência."
+     if _MAX_ANT else "Tabela anterior não encontrada no arquivo."),
+    "Depende de provar qual tabela estava no site em cada mês (histórico do site, Wayback, ata notarial). Infração objetiva.")
+
+# ---------------------------------------------------------------- 36. faturado acima do contrato vigente
+_IMF = q("SELECT item, cliente, origem, destino, produto, mes, total FROM ficha_fluxo_item_mes WHERE programado=0 AND frete>0")
+_IMF = _IMF[_IMF["item"].isin(ITENS)]
+_FLI = {it: g.sort_values("vi") for it, g in FL.groupby("item")}
+_NIT_REF = REF.groupby(["cliente", "origem", "destino", "produto"])["item"].count().to_dict()
+_r36 = []
+for r in _IMF.itertuples():
+    g = _FLI.get(int(r.item))
+    if g is None:
+        continue
+    g = g[(g["o"] == r.origem) & (g["d"] == r.destino)]
+    if not len(g):
+        continue
+    ini = pd.Timestamp(2026, int(r.mes), 1)
+    fim = ini + pd.offsets.MonthEnd(0)
+    per = 2026 * 12 + int(r.mes)
+    ate = g[g["vi"] <= fim]
+    if not len(ate) or per > _ULT_TAB.get(ate.iloc[-1]["tab"], 0) + 1:
+        continue
+    c1 = ate.iloc[-1]
+    c0 = ate.iloc[-2] if len(ate) >= 2 else None
+    if c1["vi"] > ini and c0 is None:
+        continue          # vigência começa no meio do mês e não se sabe o preço anterior
+    ref = max(c1["tot"], c0["tot"]) if (c1["vi"] > ini and c0 is not None) else c1["tot"]
+    if not ref or ref <= 0:
+        continue
+    tol = max(1.0, 0.02 * ref)
+    if r.total > ref + tol:
+        v = vol_mes(r.cliente, r.origem, r.destino, r.produto, per) / max(1, _NIT_REF.get((r.cliente, r.origem, r.destino, r.produto), 1))
+        _r36.append({"item": int(r.item), "cli": r.cliente, "mes": int(r.mes), "per": per, "fat": r.total, "ref": ref,
+                     "exc": r.total - ref, "contrato": c1["contrato"], "vi": c1["vi"], "valor": (r.total - ref) * v})
+R36 = pd.DataFrame(_r36)
+if len(R36):
+    for it, h in R36.groupby("item"):
+        u = h.sort_values("mes").iloc[-1]
+        guarda_linhas(36, pd.DataFrame([{"item": it, "servico": "TARIFA TOTAL", "ferrovia": "", "cobrado": u["fat"],
+                                         "referencia": u["ref"], "excesso": u["exc"],
+                                         "detalhe": f"faturado acima do contrato em {', '.join(MESES[m - 1] for m in sorted(h['mes']))}/2026; "
+                                                    f"contrato {u['contrato']}, vigência de {u['vi']:%d/%m/%Y}",
+                                         "serie": None, "no_mes_ref": 1}]))
+    for cli, h in R36.groupby("cli"):
+        guarda_cliente(36, cli, h["valor"].sum(), h["item"].nunique(), ("sem volume casado nos meses: valor zero honesto; "
+                       if h["valor"].sum() <= 0 else "") + "; ".join(
+            f"item {int(it)}: R$ {br(g2['fat'].iloc[-1])} faturados contra R$ {br(g2['ref'].iloc[-1])} do contrato "
+            f"({', '.join(MESES[m - 1] for m in sorted(g2['mes']))})"
+            for it, g2 in h.groupby("item")))
+cat(36, "G", "Faturado acima do preço do contrato vigente",
+    "Contrato do cliente (preço e cl. 3.4); Código Civil, arts. 876 (repetição do indébito), 112 e 113",
+    "Ficha de Fluxo 2026 (faturado) contra as telas F-LINK do cliente (contrato vigente no mês)", "cliente", "rs_periodo",
+    (f"Item a item e mês a mês, a tarifa faturada na Ficha passou do preço do contrato vigente no F-LINK em "
+     f"{R36['item'].nunique()} itens de {R36['cli'].nunique()} clientes (tolerância de R$ 1,00 ou 2% para o reajuste mensal do diesel). "
+     + "; ".join(f"{r.cli} item {int(r.item)}: R$ {br(r.fat)} contra R$ {br(r.ref)}" for r in
+                 R36.sort_values("exc", ascending=False).drop_duplicates("item").head(3).itertuples())
+     + ". Valor = excesso vezes o volume real de cada mês. Na Mosaic (itens 39889 e 39890, ZVF) a diferença é a descarga de "
+       "R$ 14,50: a tela de fev/2026 mostra frete de R$ 47,42 + descarga R$ 14,50 = R$ 70,22, e a Ficha fatura frete de R$ 61,9 "
+       "(que já soma os R$ 14,50) mais a descarga em linha própria. Conferir na fatura se a descarga está sendo cobrada duas vezes; "
+       "no item 41109 o frete passou de R$ 57,75 (mai) para R$ 89,29 (ago) contra R$ 57,22 do contrato vigente."
+     if len(R36) else "Nenhum mês faturado acima do contrato vigente."),
+    "É a alavanca de maior força documental: o cliente tem o contrato e a fatura. Pedir a devolução e a correção do "
+    "faturamento. Conferir antes se não houve aditivo depois da última vigência filmada.")
+
+# ---------------------------------------------------------------- 37. baldeação desigual na mesma rota e mês
+def r_baldeacao(d):
+    a = d[(d["servico"] == "BALDEACAO") & (d["valor"] >= 0.5)].copy()
+    if not len(a):
+        return a
+    a["fam"] = a["produto"].map(fam_pc)
+    a["aliq"] = [aliq(c, p) for c, p in zip(a["cliente"], a["produto"])]
+    a["liq"] = a["valor"] * (1 - a["aliq"])
+    pcli = a.groupby(["origem", "destino", "fam", "cliente"])["liq"].median().reset_index()
+    med = {}
+    for k, g in pcli.groupby(["origem", "destino", "fam"]):
+        for c in g["cliente"]:
+            o = g[g["cliente"] != c]["liq"]
+            if len(o):
+                med[k + (c,)] = float(o.median())
+    a["med"] = [med.get((o, de, f, c)) for o, de, f, c in zip(a["origem"], a["destino"], a["fam"], a["cliente"])]
+    a = a[a["med"].notna()]
+    a["cobrado"] = a["valor"]
+    a["referencia"] = a["med"] / (1 - a["aliq"])
+    a["excesso"] = (a["valor"] - a["referencia"]).clip(lower=0)
+    a["detalhe"] = "mediana dos outros clientes na mesma rota e mês R$ " + a["referencia"].map(br) + "/t"
+    return a
+
+
+L37 = aplica(r_baldeacao)
+guarda_linhas(37, L37)
+cat(37, "C", "Baldeação com preço diferente na mesma rota e mês",
+    "Lei 10.233/2001, art. 25 VIII; Res. ANTT 6.031/2023, art. 16 §2º", F_FICHA, "linhas", "rs_ano",
+    f"{L37['item'].nunique()} itens pagam baldeação acima da mediana dos outros clientes na mesma rota, produto e mês "
+    "(preço líquido de PIS/COFINS). Ex.: Fert Tocantins VTU→ETB fertilizantes a R$ 20,44 contra cerca de R$ 10,05 de "
+    "Fertigran, Yara e Terrena; a Fertigran caiu de R$ 20,11 para R$ 10,05 durante o ano.",
+    "Pedir o mesmo preço dado aos pares no mesmo mês; sem nome de outro cliente na peça.")
+
+# ---------------------------------------------------------------- 38. isonomia da tarifa total, líquida de tributos
+_T = q("""SELECT cliente, origem, destino, mercadoria, ano, mes, SUM(rec_total) rec, SUM(vol_tu) vol,
+                 SUM(COALESCE(imp_icms,0)+COALESCE(imp_iss,0)+COALESCE(imp_pis,0)+COALESCE(imp_cofins,0)) imp
+          FROM vli_pnl WHERE modal='Ferrovia' AND realizado=1 GROUP BY 1,2,3,4,5,6""")
+for c in ("rec", "vol", "imp"):
+    _T[c] = pd.to_numeric(_T[c], errors="coerce").fillna(0.0)
+_T["cli"] = _T["cliente"].map(canon)
+_T["prod"] = _T["mercadoria"].map(normp)
+_T["per"] = _T["ano"] * 12 + _T["mes"]
+_PMX = int(_T.loc[_T["vol"] > 0, "per"].max())
+_T = _T[(_T["per"] > _PMX - 12) & ~_T["cli"].isin(["POOL", "DIVERSOS"])]
+_T = _T.groupby(["cli", "origem", "destino", "prod", "per"], as_index=False)[["rec", "vol", "imp"]].sum()
+_T = _T[(_T["vol"] >= 1000) & (_T["rec"] > 0)]
+_T["liq"] = (_T["rec"] + _T["imp"]) / _T["vol"]
+_T["t"] = (-_T["imp"] / _T["rec"]).clip(0, 0.5)
+_r38 = []
+for k, g in _T.groupby(["origem", "destino", "prod", "per"]):
+    if g["cli"].nunique() < 2:
+        continue
+    for r in g.itertuples():
+        o = g[g["cli"] != r.cli]["liq"]
+        exc = max(0.0, r.liq - float(o.median()))
+        if exc > 0:
+            _r38.append({"cli": r.cli, "rota": f"{r.prod.lower()} {r.origem}→{r.destino}", "valor": exc * r.vol / (1 - r.t)})
+R38 = pd.DataFrame(_r38)
+for cli, h in (R38.groupby("cli") if len(R38) else []):
+    pr = h.groupby("rota")["valor"].sum().sort_values(ascending=False)
+    guarda_cliente(38, cli, h["valor"].sum(), len(pr), "; ".join(f"{k}: R$ {mi(v)} mi" for k, v in pr.head(3).items()))
+cat(38, "C", "Isonomia da tarifa total, líquida de tributos",
+    "Lei 10.233/2001, art. 25 VIII", F_PNL, "cliente", "rs_ano",
+    f"Tarifa total (frete + DP + acessórias) de cada cliente, líquida de ICMS e PIS/COFINS, contra a mediana dos OUTROS "
+    f"clientes na mesma rota, produto e mês, nos 12 meses até {lbl_per(_PMX)}. Comparar o total elimina a troca entre "
+    "frete e acessória; tirar o tributo elimina a diferença de regime. Ganho devolvido aos termos do cliente. Caso mais "
+    "claro: Raízen, maior cliente do diesel QPM→PPN e o maior preço da rota.",
+    "Pedido de equalização com a mediana dos pares; a peça usa a fatura do cliente e a referência agregada, sem nomes.")
+
+# ---------------------------------------------------------------- 39. queda do preço do grão desigual entre clientes
+_G = P[(P["mercadoria"].notna())].copy()
+_G["per"] = _G["ano"] * 12 + _G["mes"]
+_PG = int(_G.loc[_G["vol_tu"] > 0, "per"].max())
+_G = _G[_G["prod"].isin(["SOJA", "MILHO"]) & (_G["per"] > _PG - 24)]
+_G["jan"] = np.where(_G["per"] > _PG - 12, "A", "B")
+_k = ["cli", "origem", "destino", "prod", "mes"]
+_ga = _G[_G["jan"] == "A"].groupby(_k)[["vol_tu", "rec_total"]].sum()
+_gb = _G[_G["jan"] == "B"].groupby(_k)[["vol_tu", "rec_total"]].sum()
+_gt = _ga.join(_gb, lsuffix="_a", rsuffix="_b", how="inner")
+_gt = _gt[(_gt["vol_tu_a"] > 0) & (_gt["vol_tu_b"] > 0) & (_gt["rec_total_a"] > 0) & (_gt["rec_total_b"] > 0)].reset_index()
+_gt["pa"] = _gt["rec_total_a"] / _gt["vol_tu_a"]
+_gt["pb"] = _gt["rec_total_b"] / _gt["vol_tu_b"]
+_ind = lambda g: (g["pa"] * g["vol_tu_a"]).sum() / (g["pb"] * g["vol_tu_a"]).sum() - 1
+_ig = _ind(_gt)
+_c39 = _gt.groupby("cli").apply(lambda h: pd.Series({"vol": h["vol_tu_a"].sum(), "ind": _ind(h), "base": (h["pb"] * h["vol_tu_a"]).sum()}))
+_c39 = _c39[_c39["vol"] >= 100000]
+_c39["valor"] = ((_c39["ind"] - _ig) * _c39["base"]).clip(lower=0)
+for cli, r in _c39.iterrows():
+    guarda_cliente(39, cli, r["valor"] if r["valor"] > 0 else 0.0, None,
+                   f"preço em rota e mês constantes {pct(r['ind'], 1)} em 12 meses contra {pct(_ig, 1)} do grão em geral "
+                   f"({br(r['vol'] / 1e6, 2)} Mt comparáveis)")
+cat(39, "H", "Queda do preço do grão desigual entre clientes",
+    "Lei 10.233/2001, art. 25 VIII (isonomia); argumento de negociação", F_PNL, "cliente", "rs_ano",
+    f"Nos 12 meses até {lbl_per(_PG)}, contra os 12 anteriores, na mesma rota, produto e mês do calendário, o preço do grão "
+    f"(soja e milho, líquido de tributos) variou {pct(_ig, 1)}. Clientes que caíram menos que a média ficaram para trás. "
+    "Valor = diferença entre o índice do cliente e o geral, sobre a receita comparável.",
+    "Usar na renegociação de 2027: o cliente pede ao menos a queda média que a VLI já concedeu aos pares.")
+
+# ---------------------------------------------------------------- 40. notas complementares e de crédito
+_S = q("""SELECT ano, cliente, SUM(CASE WHEN rec_total > 0 THEN rec_total ELSE 0 END) cob,
+                 SUM(CASE WHEN rec_total < 0 THEN rec_total ELSE 0 END) cred
+          FROM vli_pnl WHERE estagio='SUP' AND realizado=1 GROUP BY 1,2""")
+for c in ("cob", "cred"):
+    _S[c] = pd.to_numeric(_S[c], errors="coerce").fillna(0.0)
+_S["cli"] = _S["cliente"].map(canon)
+_S = _S[~_S["cli"].isin(["POOL", "DIVERSOS"])]
+_sc = _S.groupby("cli")[["cob", "cred"]].sum()
+_sc["liq"] = _sc["cob"] + _sc["cred"]
+for cli, r in _sc[_sc["liq"] > 1e5].iterrows():
+    guarda_cliente(40, cli, r["liq"], None, f"cobrado R$ {mi(r['cob'])} mi e creditado R$ {mi(-r['cred'])} mi em notas fora do preço")
+_cre = _sc[_sc["liq"] < -1e6].sort_values("liq")
+cat(40, "E", "Notas complementares e de crédito fora do preço",
+    "Código Civil, arts. 112, 113, 423 e 876; Lei 10.233/2001, art. 25 VIII", F_PNL, "cliente", "rs_periodo",
+    f"Lançamentos sem volume (estágio SUP) de {', '.join(str(a) for a in sorted(_S['ano'].unique()))}: R$ {mi(_sc['cob'].sum())} mi "
+    f"cobrados e R$ {mi(-_sc['cred'].sum())} mi creditados. Receberam crédito líquido: "
+    + ", ".join(f"{c} R$ {mi(-v)} mi" for c, v in _cre["liq"].head(5).items())
+    + ". Valor por cliente = cobrança líquida no período.",
+    "Auditar cada nota complementar do cliente e pedir o mesmo tratamento dado a quem recebeu crédito. A natureza dos "
+    "lançamentos é inferida do P&L; confirmar com as faturas.")
+
+# ---------------------------------------------------------------- 41. cobranças novas no P&L desde 2024
+_N = q("""SELECT ano, cliente, mercadoria serv, SUM(rec_total) rec FROM vli_pnl
+          WHERE realizado=1 AND modal='Serviços Acessórios'
+            AND mercadoria IN ('Movimentação Extra','Orquestração Logística','Estocagem')
+          GROUP BY 1,2,3
+          UNION ALL
+          SELECT ano, cliente, 'Serviço acessório no trem' serv, SUM(rec_sa) rec FROM vli_pnl
+          WHERE realizado=1 AND modal='Ferrovia' AND rec_sa > 0 GROUP BY 1,2,3""")
+_N["rec"] = pd.to_numeric(_N["rec"], errors="coerce").fillna(0.0)
+_N["cli"] = _N["cliente"].map(canon)
+_N = _N[~_N["cli"].isin(["POOL", "DIVERSOS"]) & (_N["rec"] > 0)]
+# só o que é NOVO para o cliente: primeiro ano com receita daquele serviço em 2024 ou depois
+_N["ini"] = _N.groupby(["cli", "serv"])["ano"].transform("min")
+_N = _N[_N["ini"] >= 2024]
+_ANOF = int(_N["ano"].max())
+for cli, h in _N.groupby("cli"):
+    ult = h[h["ano"] >= _ANOF - 1].groupby("ano")["rec"].sum()
+    if h["rec"].sum() < 5e5:
+        continue
+    v = float(h[h["ano"] == _ANOF]["rec"].sum())
+    guarda_cliente(41, cli, v, None, "; ".join(
+        f"{s.lower()}: " + ", ".join(f"{int(a)} R$ {mi(x)} mi" for a, x in g.groupby('ano')['rec'].sum().items())
+        for s, g in h.groupby("serv")))
+cat(41, "E", "Cobranças que não existiam até 2023",
+    "Res. ANTT 6.031/2023, art. 16 §2º (indicador publicado) e art. 17 (aviso)", F_PNL, "cliente", "rs_periodo",
+    "Linhas de receita novas: Movimentação Extra nos terminais (fertilizantes no TUF), Orquestração Logística, Estocagem e "
+    "serviço acessório faturado junto do trem (ex.: Mosaic, R$ 16,50/t em 2026 contra máximo publicado de R$ 14,00). "
+    f"Entra só o serviço cujo primeiro ano de receita para aquele cliente é 2024 ou depois. Valor por cliente = {_ANOF} (meses realizados).",
+    "Pedir o contrato ou aditivo que criou cada cobrança e o indicador publicado; sem os dois, a cobrança não tem base.")
+
+# ---------------------------------------------------------------- 42. volume abaixo do orçamento 2026
+try:
+    _p26o = next(p for p in _pan if p.startswith("2026") and "Oficial" in p)
+    _mr2 = int(q("SELECT MAX(mes) m FROM vli_pnl WHERE ano=2026 AND realizado=1")["m"].iloc[0])
+    _rv = q("SELECT cliente, SUM(vol_tu) v FROM vli_pnl WHERE modal='Ferrovia' AND ano=2026 AND realizado=1 GROUP BY 1")
+    _ov = q(f"SELECT cliente, SUM(vol_tu) v FROM vli_pnl_orcamento WHERE modal='Ferrovia' AND panorama='{_p26o}' AND mes<={_mr2} GROUP BY 1")
+    for _d in (_rv, _ov):
+        _d["v"] = pd.to_numeric(_d["v"], errors="coerce").fillna(0.0)
+        _d["cli"] = _d["cliente"].map(canon)
+    _vv = _rv.groupby("cli")["v"].sum().rename("real").to_frame().join(_ov.groupby("cli")["v"].sum().rename("orc"), how="outer").fillna(0)
+    _vv = _vv[(_vv["orc"] >= 50000) & (_vv["real"] < 0.95 * _vv["orc"]) & ~_vv.index.isin(["POOL", "DIVERSOS", "RUMO", "MRS"])]
+    for cli, r in _vv.iterrows():
+        guarda_cliente(42, cli, None, int(round((r["orc"] - r["real"]) / 1000)),
+                       f"{pct(1 - r['real'] / r['orc'])} abaixo: {ni(r['real'] / 1000)} kt realizados contra {ni(r['orc'] / 1000)} kt "
+                       f"orçados pela VLI (jan a {MESES[_mr2 - 1]}/2026)")
+    _tr = _rv["v"].sum(); _to = _ov[~_ov["cli"].isin(["RUMO", "MRS"])]["v"].sum()
+    cat(42, "H", "Volume abaixo do que a VLI orçou para 2026",
+        "Argumento de negociação; contrato-padrão cl. 8.7 (take or pay recíproco)", f"Orçamento VLI {_p26o} contra o realizado, uso interno",
+        "contagem", "contagem",
+        f"Jan a {MESES[_mr2 - 1]}/2026: {br(_tr / 1e6, 1)} Mt realizados contra {br(_to / 1e6, 1)} Mt orçados (sem as passagens de "
+        f"Rumo e MRS). {len(_vv)} clientes ficaram mais de 5% abaixo do orçado: a VLI precisa do volume deles em 2027 e eles "
+        "estão expostos a take or pay.",
+        "Entrar na renegociação sabendo quanto a VLI conta com o cliente. Conferir no contrato se a falta de volume foi "
+        "causada por oferta da ferrovia (cl. 8.7 vale para as duas partes).")
+except Exception as e:
+    cat(42, "H", "Volume abaixo do que a VLI orçou para 2026", "Argumento de negociação", "Orçamento VLI 2026",
+        "descritivo", "nenhuma", f"Orçamento 2026 indisponível ({e}).", "")
+
+# ---------------------------------------------------------------- 43. cláusulas do contrato-padrão; PREPEX da Alvorada
+_alv = q("""SELECT SUM(rec_total) rec, SUM(COALESCE(imp_pis,0)+COALESCE(imp_cofins,0)) pc FROM vli_pnl
+            WHERE modal='Ferrovia' AND realizado=1 AND cliente LIKE '%ALVORADA%'
+              AND (ano*12+mes) > (SELECT MAX(ano*12+mes) FROM vli_pnl WHERE realizado=1 AND modal='Ferrovia') - 12""").iloc[0]
+_alv_pc = -float(_alv["pc"] or 0)
+if _alv_pc > 0:
+    guarda_cliente(43, "ALVORADA", _alv_pc, None,
+                   f"contrato C_2026_2 declara a Alvorada PREPEX (cl. 4.6, suspensão de PIS/COFINS) e o faturamento dos últimos 12 meses "
+                   f"traz R$ {mi(_alv_pc)} mi de PIS/COFINS ({pct(_alv_pc / float(_alv['rec']), 1)} da receita); conferir se o Ato Declaratório foi entregue")
+cat(43, "G", "Cláusulas do contrato-padrão que o cliente pode usar",
+    "Contratos C_2025_175 e C_2026_2 (texto integral); Código Civil, arts. 112, 113 e 423", "Contrato-padrão VLI", "cliente", "rs_ano",
+    "Lidas no texto dos dois contratos: tarifa única com manobra percentual (3.2) e custo já incluso (3.3); nova acessória só "
+    "com aditivo (3.4); 30% da tarifa reajustados todo mês pelo diesel do fornecedor da VLI (3.5); mudança tributária reflete "
+    "no preço, para mais ou para menos (4.2); suspensão de PIS/COFINS para exportador (4.6); multa de take or pay para "
+    "qualquer das partes (8.7); aceitação tácita da apuração mensal (8.8). Caso concreto: a Alvorada é PREPEX no contrato e "
+    "o faturamento traz PIS/COFINS.",
+    "Cada cláusula é uma pergunta para o cliente. 4.2 sustenta o repasse da reforma tributária (alavanca 28); 8.7 permite "
+    "cobrar a VLI por capacidade não ofertada; 8.8 exige contestar a apuração no prazo.",
+    {"cols": ["Cláusula", "O que diz", "Uso"],
+     "rows": [["3.2", "Manobra de origem e de destino = 5% da tarifa (FCA) e 8% (FNS); baldeação R$ 15,00", "Faturado acima do percentual (alavanca 33)"],
+              ["3.4", "Nova operação acessória só com autorização expressa e aditivo", "DP e serviços sem aditivo (alavancas 34 e 41)"],
+              ["3.5", "30% da tarifa reajustados todo mês pela variação do diesel do fornecedor da VLI", "Pedir comprovação do índice (alavanca 44)"],
+              ["4.2", "Impacto tributário positivo ou negativo reflete no valor", "Repasse da queda de carga (alavanca 28)"],
+              ["4.6", "Exportador PREPEX com suspensão de PIS/COFINS mediante Ato Declaratório", "Alvorada faturada com PIS/COFINS"],
+              ["8.7", "Multa de 70% da tarifa média sobre o volume não cumprido, para qualquer das partes", "Cobrar capacidade não ofertada"],
+              ["8.8", "Apuração mensal aceita tacitamente se não contestada até o fim do mês", "Contestar no prazo"]]})
+
+# ---------------------------------------------------------------- 44. reajuste mensal pelo diesel (cl. 3.5)
+_cz = q("""SELECT item, mes, total FROM ficha_fluxo_item_mes
+           WHERE programado=0 AND frete>0 AND cliente = 'CZARNIKOW'""").sort_values(["item", "mes"])
+_cz["var"] = _cz.groupby("item")["total"].pct_change()
+_czm = _cz.dropna().groupby("mes")["var"].median()
+cat(44, "G", "Reajuste mensal pelo diesel com índice que o cliente não confere",
+    "Contrato-padrão VLI, cl. 3.5; Código Civil, arts. 113 e 423", "Contratos C_2025_175 e C_2026_2 e Ficha 2026", "descritivo", "nenhuma",
+    "A cl. 3.5 reajusta 30% da tarifa todo mês pela variação do diesel praticado pelo fornecedor da VLI, de forma composta. "
+    "O cliente não tem acesso ao índice. Variação mediana da tarifa total dos itens da Czarnikow na Ficha, mês a mês (inclui a "
+    "curva mensal de preço do contrato e o diesel; os itens mudam todos juntos): "
+    + "; ".join(f"{MESES[int(m) - 1]} {'+' if v >= 0 else ''}{pct(v, 1)}" for m, v in _czm.items() if abs(v) >= 0.0005)
+    + ". Um reajuste de 2,3% na tarifa equivale a cerca de 7,8% de diesel em um mês.",
+    "Exigir a nota do fornecedor e comparar com a série da ANP. Cada 1 ponto percentual sobre a receita de grãos vale cerca "
+    "de R$ 32 mi/ano no mercado.",
+    {"cols": ["Mês", "Variação mediana da tarifa total"],
+     "rows": [[MESES[int(m) - 1], f"{'+' if v >= 0 else ''}{pct(v, 2)}"] for m, v in _czm.items()]})
+
+# ---------------------------------------------------------------- 45. estadia por tonelada acima da mediana
+_E = q("""SELECT ano, cliente, SUM(rec_total) rec FROM vli_pnl
+          WHERE realizado=1 AND modal='Serviços Acessórios' AND mercadoria='Estadia de vagões' GROUP BY 1,2""")
+_Ev = q("SELECT ano, cliente, SUM(vol_tu) vol FROM vli_pnl WHERE realizado=1 AND modal='Ferrovia' GROUP BY 1,2")
+for _d in (_E, _Ev):
+    _d["cli"] = _d["cliente"].map(canon)
+_E["rec"] = pd.to_numeric(_E["rec"], errors="coerce").fillna(0.0)
+_Ev["vol"] = pd.to_numeric(_Ev["vol"], errors="coerce").fillna(0.0)
+_E = _E.groupby(["ano", "cli"])["rec"].sum().to_frame().join(_Ev.groupby(["ano", "cli"])["vol"].sum(), how="left").reset_index()
+_E = _E[(_E["rec"] > 0) & (_E["vol"] > 0)]
+_E["rs_t"] = _E["rec"] / _E["vol"]
+_E["med"] = _E.groupby("ano")["rs_t"].transform("median")
+_E["exc"] = ((_E["rs_t"] - _E["med"]).clip(lower=0) * _E["vol"])
+_ANO_E = 2025 if (_E["ano"] == 2025).any() else int(_E["ano"].max())
+for cli, h in _E.groupby("cli"):
+    if h["exc"].sum() < 2e5:
+        continue
+    guarda_cliente(45, cli, float(h.loc[h["ano"] == _ANO_E, "exc"].sum()), None, "; ".join(
+        f"{int(r.ano)}: R$ {br(r.rs_t)}/t contra mediana de R$ {br(r.med)}" for r in h.sort_values("ano").itertuples()))
+cat(45, "E", "Estadia de vagões por tonelada acima da mediana",
+    "Res. ANTT 6.031/2023, arts. 4º e 16; contrato-padrão, Anexo III (registros só da VLI, 7 dias para contestar)", F_PNL,
+    "cliente", "rs_2025",
+    f"Estadia por tonelada transportada, por cliente e ano, contra a mediana dos clientes com estadia. Mediana de "
+    f"{_ANO_E}: R$ {br(float(_E.loc[_E['ano'] == _ANO_E, 'med'].iloc[0]))}/t. Valor = excesso sobre a mediana vezes o volume, em {_ANO_E}. "
+    "Na Ipiranga a estadia por tonelada é várias vezes maior nos meses de volume baixo, sinal de espera não causada pelo cliente.",
+    "Pedir os registros de chegada e liberação dos vagões e contestar dentro do prazo do Anexo III.")
+
+# ---------------------------------------------------------------- 46. repasse à Vale contra o que a VLI cobra nos mesmos trechos
+_V = q("""SELECT cliente, SUM(rec_total) rec, SUM(COALESCE(cst_rep_fix,0)+COALESCE(cst_rep_var,0)) rep, SUM(rec_man) man
+          FROM vli_pnl WHERE modal='Ferrovia' AND realizado=1 AND ativo IN ('EFVM','EFC')
+            AND (ano*12+mes) > (SELECT MAX(ano*12+mes) FROM vli_pnl WHERE realizado=1 AND modal='Ferrovia') - 12
+          GROUP BY 1""")
+for c in ("rec", "rep", "man"):
+    _V[c] = pd.to_numeric(_V[c], errors="coerce").fillna(0.0)
+_V["cli"] = _V["cliente"].map(canon)
+_V = _V.groupby("cli")[["rec", "rep", "man"]].sum().sort_values("rec", ascending=False)
+cat(46, "H", "O que a VLI repassa à Vale nos trechos da EFVM e da EFC",
+    "Argumento de negociação; Res. ANTT 6.031/2023, art. 15 e Lei 10.233/2001, art. 25", F_PNL, "descritivo", "nenhuma",
+    f"Nos 12 meses, a receita da VLI nos trechos da EFVM e da EFC foi de R$ {mi(_V['rec'].sum())} mi; o repasse à Vale, "
+    f"R$ {mi(-_V['rep'].sum())} mi ({pct(-_V['rep'].sum() / _V['rec'].sum())}); a manobra cobrada nesses mesmos trechos, "
+    f"R$ {mi(_V['man'].sum())} mi. Usiminas ESQ→VIC paga R$ 127,1/t e a VLI repassa R$ 13,8/t.",
+    "Mostra ao cliente quanto da tarifa fica com a VLI quando a malha é da Vale; insumo de negociação, não ganho direto.",
+    {"cols": ["Cliente", "Receita nos trechos (R$ mi)", "Repasse à Vale (R$ mi)", "Manobra cobrada (R$ mi)"],
+     "rows": [[c, round(r.rec / 1e6, 1), round(-r.rep / 1e6, 1), round(r.man / 1e6, 1)] for c, r in _V.head(10).iterrows()]})
+
+
 # ------------------------------------------------------------------ grava
 CAT = pd.DataFrame(CATALOGO).sort_values("id")
 CAT["grupo_nome"] = CAT["grupo"].map(GRUPOS)
 LIN = pd.DataFrame(LINHAS)
 CLI = pd.DataFrame(CLIENTES)
-assert sorted(CAT["id"]) == list(range(1, 31)), sorted(CAT["id"])
+assert sorted(CAT["id"]) == list(range(1, 47)), sorted(CAT["id"])
 _textos = pd.concat([CAT[c].astype(str) for c in ("titulo", "norma", "fonte", "evidencia", "uso", "tabela")]
                     + [LIN["detalhe"].astype(str), CLI["detalhe"].astype(str)])
 _trav = _textos[_textos.str.contains("[–—]")]

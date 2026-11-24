@@ -433,7 +433,7 @@ footer{color:var(--mut2);font-size:11px;text-align:center;margin:28px 0 8px;padd
     <div id="bpScreenPainel" style="display:none">
       <div class="pc-head">
         <div class="pc-row">
-          <span class="pc-lbl">Cliente (priorizados — 18)</span>
+          <span class="pc-lbl" id="pcLblPrior">Cliente (priorizados)</span>
           <select id="pcCliPriorSel" class="mono" style="margin-right:14px"></select>
           <span class="pc-lbl">Cliente (todos da base)</span>
           <select id="pcCliTodosSel" class="mono"></select>
@@ -2152,7 +2152,10 @@ if(D.comparativo && D.comparativo.tarifas){
   // seleção fica salva (mesma persistência de antes, chave renomeada v2).
   const PC_LAST_KEY='lc_pc_last_cli_v2';
   let _pcLast; try{ _pcLast=localStorage.getItem(PC_LAST_KEY); }catch(e){ _pcLast=null; }
-  const pcPrioridadesList=pcClientes.filter(c=>PC_CLIENTES_PRIORIZADOS.has(c))
+  // varredura 24/nov/2026: a lista era fixa no código e deixava de fora Cargill, ADM, Bunge, Cofco e
+  // CHS. Agora: os 18 curados + todo cliente do painel com fluxo que rodou nos últimos 12 meses.
+  const _comTrafego=new Set(PJF.filter(f=>!isRetro(f.fluxo)&&f.rota_ult&&!f.rota_inativa).map(f=>canonPC(f.cliente)));
+  const pcPrioridadesList=pcClientes.filter(c=>PC_CLIENTES_PRIORIZADOS.has(c)||_comTrafego.has(c))
     .sort((a,b)=>(a==='SELECTA'?-1:b==='SELECTA'?1:a.localeCompare(b)));
   let pcCli=(_pcLast && pcClientesTodos.includes(_pcLast)) ? _pcLast : (pcPrioridadesList[0]||pcClientesTodos[0]);
   let pcTab='teto', pcRotaSel={}, pcTetoRota={}, pcRetroRota={};
@@ -2627,7 +2630,8 @@ if(D.comparativo && D.comparativo.tarifas){
       &&(alvo==null||canonPC(r.cliente)!==alvo));
     if(!rows.length) return null;
     const porCli=new Map();
-    rows.forEach(r=>{ const c=canonPC(r.cliente); if(!porCli.has(c)) porCli.set(c,[]); porCli.get(c).push(r.tarifa); });
+    // preço LÍQUIDO de PIS/COFINS (varredura 24/nov/2026); quem chama devolve aos termos do cliente
+    rows.forEach(r=>{ const c=canonPC(r.cliente); if(!porCli.has(c)) porCli.set(c,[]); porCli.get(c).push(r.tarifa_liq!=null?r.tarifa_liq:r.tarifa); });
     const vals=[...porCli.entries()].map(([c,ts])=>({cliente:c, v:mediana(ts)})).filter(x=>x.v!=null);
     if(!vals.length) return null;
     const m=vals.reduce((a,b)=>a.v<=b.v?a:b);
@@ -2657,8 +2661,14 @@ if(D.comparativo && D.comparativo.tarifas){
     const srv=servicoItem(item); if(!srv) return null;
     const est=/ORIGEM/.test(srv)?rota.origem:rota.destino; if(!est) return null;
     const p=paresEstacao(est, srv, rota.produto, cliente);
-    return p?p[sel||'min']:null;
+    return p?p[sel||'min']*fatorPC(cliente, rota.produto):null;
   }
+  // regime de PIS/COFINS do cliente na família do produto (build: ALIQ_PC, P&L 12 meses). Pares são
+  // comparados líquidos; o valor volta aos termos do cliente dividindo por (1 − alíquota dele).
+  function famPC(p){ const s=String(p||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+    if(/^FARELO/.test(s)) return 'FARELO'; if(/^(SOJA|MILHO)/.test(s)) return 'GRAOS'; if(/^ACUCAR/.test(s)) return 'ACUCAR';
+    return s.split(' ')[0]||''; }
+  function fatorPC(cli, produto){ const a=((D.meta&&D.meta.aliq_pc)||{})[canonPC(cli)+'|'+famPC(produto)]||0; return 1/(1-a); }
   // manobra nas outras ferrovias (tabelas formais RUMO/MRS/VALE), casando a família do produto
   function manobraFerrovias(produto){
     const fam=String(produto||'').toUpperCase();
@@ -2919,6 +2929,7 @@ if(D.comparativo && D.comparativo.tarifas){
       try{ localStorage.setItem(PC_LAST_KEY, pcCli); }catch(e){}
       pcRender();
     };
+    { const lb=document.getElementById('pcLblPrior'); if(lb) lb.textContent=`Cliente (curados e com tráfego: ${pcPrioridadesList.length})`; }
     if(selPrior){
       selPrior.innerHTML=pcPrioridadesList.map(c=>
         `<option value="${escAttr(c)}"${c===pcCli?' selected':''}>${c}</option>`).join('');
@@ -3211,8 +3222,13 @@ if(D.comparativo && D.comparativo.tarifas){
     if(ancoraIdx<0) return null;
     const glob=pcAncoraGlobal();
     if(glob>0 && ancoraIdx<=glob-12) return 0;
+    // varredura 24/nov/2026: a janela é a da BASE (12 meses até o último mês da base inteira), como
+    // a regra documentada manda. Ancorada no último mês da própria série, uma rota que parou em
+    // maio somava jun/2025 a mai/2026 como se fossem "os últimos 12 meses" (62 fluxos, ALZ soja
+    // PIN→QPM 851 kt contra 296 kt reais na janela).
+    const anc=glob>0?glob:ancoraIdx;
     let t=0, achou=false;
-    for(let i=0;i<12;i++){ const idx=ancoraIdx-i; const a=Math.floor((idx-1)/12), m=idx-a*12;
+    for(let i=0;i<12;i++){ const idx=anc-i; const a=Math.floor((idx-1)/12), m=idx-a*12;
       const v=(anosMap[a]||{})[m]; if(v!=null){t+=v;achou=true;} }
     return achou?t:null;
   }
@@ -3444,8 +3460,9 @@ if(D.comparativo && D.comparativo.tarifas){
           // mesmo. Sem isso a linha "N cliente(s) na estação" contava o próprio cliente (SELECTA em
           // EBJ anunciava "2 cliente(s)" havendo UM comparador real) e o "mais barato" podia ser o
           // próprio cliente — divergindo do benchmark que o simulador de fato usa (ver paresEstacao).
-          const pOri=paresEstacao(rota.origem,'MANOBRA ORIGEM',rota.produto,f.cliente);
-          const pDes=paresEstacao(rota.destino,'MANOBRA DESTINO',rota.produto,f.cliente);
+          const _fpc=fatorPC(f.cliente, rota.produto), _tc=p=>p?{...p, med:p.med*_fpc, min:p.min*_fpc}:p;
+          const pOri=_tc(paresEstacao(rota.origem,'MANOBRA ORIGEM',rota.produto,f.cliente));
+          const pDes=_tc(paresEstacao(rota.destino,'MANOBRA DESTINO',rota.produto,f.cliente));
           const mf=manobraFerrovias(rota.produto);
           const _pgk=custoPremGk(f);
           const prem={...PREM_DEF, ...(_pgk?(s.vobPrem=s.vobPrem||{}, s.vobPrem[_pgk]||{}):((s.teto[k]||{}).premissas||{})), vol_kt:custoVolKtDe(f)};
@@ -4004,7 +4021,7 @@ if(D.comparativo && D.comparativo.tarifas){
     // ---------- potencial POR FLUXO (acessória + isonomia daquela rota) — fonte única,
     // compartilhada com o card do topo "Retroativo — otimista/moderado" (ver ganhoRetroCliente) ----------
     const gRetro=ganhoRetroCliente();
-    const {porFluxo, totDireto, totOsc, iso}=gRetro;
+    const {porFluxo, totDireto, totOsc, iso, isoSemFluxoMod, isoSemFluxoOtm}=gRetro;
 
     if(!porFluxo.length){
       el.innerHTML='<div class="panel"><div class="muted" style="padding:12px 4px">Sem histórico de retroativo (nem de acessória, nem de isonomia) transcrito pra este cliente.</div></div>';
@@ -4048,7 +4065,7 @@ if(D.comparativo && D.comparativo.tarifas){
       </div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>Rota</th><th>Produto</th><th class="num">Acess. vedada</th><th class="num">Acess. oscilação</th><th class="num">Isonomia moderado</th><th class="num">Isonomia otimista</th><th class="num">Total moderado</th><th class="num">Total otimista</th></tr></thead>
-        <tbody>${resumoRows}</tbody>
+        <tbody>${resumoRows}${isoSemFluxoMod>0.5||isoSemFluxoOtm>0.5?`<tr><td colspan="2"><span class="muted">Isonomia de rotas sem fluxo no painel</span></td><td class="num mono">n/d</td><td class="num mono">n/d</td><td class="num mono">${BRL0(isoSemFluxoMod)}</td><td class="num mono">${BRL0(isoSemFluxoOtm)}</td><td class="num">${BRL0(isoSemFluxoMod)}</td><td class="num">${BRL0(isoSemFluxoOtm)}</td></tr>`:''}</tbody>
         <tfoot><tr style="border-top:2px solid var(--hairline);font-weight:600">
           <td colspan="2">Somatório (${porFluxo.length} rotas)</td>
           <td class="num mono">${BRL0(totDireto)}</td><td class="num mono">${BRL0(totOsc)}</td>
@@ -4590,14 +4607,22 @@ if(D.comparativo && D.comparativo.tarifas){
     if(anc<0) return null;
     const G=pcAncoraGlobal(); const out={};
     if(G>0&&anc<=G-12) return out;
-    for(let i=0;i<12;i++){ const idx=anc-i, a=Math.floor((idx-1)/12), m=idx-a*12, v=(anosMap[a]||{})[m]; if(v!=null) out[m]=(out[m]||0)+v; }
+    const fim=G>0?G:anc;   // mesma janela da base de pcUlt12Sum (varredura 24/nov/2026)
+    for(let i=0;i<12;i++){ const idx=fim-i, a=Math.floor((idx-1)/12), m=idx-a*12, v=(anosMap[a]||{})[m]; if(v!=null) out[m]=(out[m]||0)+v; }
     return out;
   }
+  var _vmCache;   // var + criação preguiçosa: a função é hoisted e pode rodar antes desta linha
   function ganhoMensal(cli, item, o, d, produto, sel){
     const _FIS=(D.ficha&&D.ficha.serie_svc)||{}, _FIP=(D.ficha&&D.ficha.pares_mes)||{};
+    // pares vêm LÍQUIDOS de PIS/COFINS (build); volta aos termos do cliente pela alíquota do item
+    const _fa=1/(1-(((D.ficha&&D.ficha.aliq_item)||{})[item]||0));
+    const _tbZera=transbordoZeraDefault(cli,o);
     const cls=classeGrao(produto), sv=_FIS[item];
     if(!cls||!sv||!sv.length||!o||!d) return null;
-    const vm=volMensal12(pcVolLookup(cli,o,d,produto))||{};
+    const _vk=cli+'|'+o+'|'+d+'|'+produto;
+    if(!_vmCache) _vmCache=new Map();
+    if(!_vmCache.has(_vk)) _vmCache.set(_vk, volMensal12(pcVolLookup(cli,o,d,produto))||{});
+    const vm=_vmCache.get(_vk);
     const porMes={}; sv.forEach(r=>{ porMes[r[0]]=r; }); const ms=sv.map(r=>r[0]);
     let anual=0, ipoaExc=0, volT=0; const meses=[];
     for(let m=1;m<=12;m++){
@@ -4606,9 +4631,12 @@ if(D.comparativo && D.comparativo.tarifas){
       const mp=r[0]; let gap=0;
       [['MANOBRA ORIGEM',r[1],o],['MANOBRA DESTINO',r[2],d],['TRANSBORDO ORIGEM',r[3],o]].forEach(([srv,v,est])=>{
         if(!(v>0)) return;
+        // decisão de 22/jul (transbordo simulado em zero só na whitelist, ex. ALZ em PIN): o caminho
+        // mês a mês (19/nov) tinha deixado de aplicar (varredura 24/nov/2026)
+        if(srv==='TRANSBORDO ORIGEM'&&_tbZera){ gap+=v; return; }
         const lst=(_FIP[srv+'|'+est+'|'+cls+'|'+mp]||[]).filter(x=>x[0]!==cli).map(x=>x[1]);
         if(!lst.length) return;   // sem par naquele mês: sem ganho (zero honesto)
-        const ref=sel==='min'?Math.min(...lst):mediana(lst);
+        const ref=(sel==='min'?Math.min(...lst):mediana(lst))*_fa;
         gap+=Math.max(0, v-ref);
       });
       anual+=gap*vol; ipoaExc+=Math.max(0, r[5]-IPOA_REF*r[4])*vol; volT+=vol;
@@ -4617,13 +4645,46 @@ if(D.comparativo && D.comparativo.tarifas){
     return {anual, ipoaExc, volKt:volT/1000, rsT:volT>0?anual/volT:0, meses};
   }
   // fluxo do Painel do Cliente: só sem simulação manual, só fluxo de grão/farelo com item da ficha
+  // varredura 24/nov/2026: o conector representava a rota pelo item de MAIOR tarifa e aplicava o
+  // volume inteiro da rota a ele (201 de 224 fluxos de grão; tarifa 11,6% acima da média dos itens).
+  // Agora o ganho do fluxo é a média dos itens da ficha do mesmo cliente, rota e produto (mesma
+  // regra da aba Ficha e das alavancas: volume dividido igual entre os itens), repartida entre os
+  // fluxos do painel que caem na mesma rota (Selecta ETB→VTU e Czarnikow tinham o volume em dobro).
+  var _itRota=null, _flRota=null;   // var: funções hoisted podem rodar antes desta linha
+  function _rotaKeyItem(item){
+    if(!_itRota){ _itRota={byItem:{}, byKey:{}};
+      ((D.ficha&&D.ficha.itens)||[]).filter(x=>x.status==='atual').forEach(x=>{ const k=x.cliente+'|'+x.origem+'|'+x.destino+'|'+x.produto;
+        _itRota.byItem[x.item]=k; (_itRota.byKey[k]=_itRota.byKey[k]||[]).push(x.item); }); }
+    return _itRota.byItem[item]||null;
+  }
+  function _itemCitado(f){ const m=String(f.cobertura||'').match(/^ficha 2026 \(item (\d+)/); return m?+m[1]:null; }
+  function _nFluxosRota(k){
+    if(!_flRota){ _flRota={};
+      PJF.filter(x=>!isRetro(x.fluxo)).forEach(x=>{ const it=_itemCitado(x), kk=it!=null?_rotaKeyItem(it):null; if(kk) _flRota[kk]=(_flRota[kk]||0)+1; }); }
+    return _flRota[k]||1;
+  }
+  // cache: sem simulação manual o resultado só depende de dados fixos do payload
+  var _gmfCache;
   function ganhoMensalFluxo(f, sel){
     const cfg=st(canonPC(f.cliente)).teto[fkey(f)];
     if(cfg&&((cfg.items&&Object.keys(cfg.items).length)||cfg.volKt!=null)) return null;
+    const _ck=fkey(f)+'|'+canonPC(f.cliente)+'|'+sel;
+    if(!_gmfCache) _gmfCache=new Map();
+    if(_gmfCache.has(_ck)) return _gmfCache.get(_ck);
+    const _r=_ganhoMensalFluxo(f, sel); _gmfCache.set(_ck, _r); return _r;
+  }
+  function _ganhoMensalFluxo(f, sel){
     if(f.unidade==='R$/contêiner') return null;
-    const m=String(f.cobertura||'').match(/^ficha 2026 \(item (\d+)/); if(!m) return null;
+    const item=_itemCitado(f); if(item==null) return null;
     const r=fluxoRota(f); if(!r||!r.origem) return null;
-    return ganhoMensal(canonPC(f.cliente), +m[1], r.origem, r.destino, r.produto, sel);
+    const cli=canonPC(f.cliente), k=_rotaKeyItem(item);
+    const itens=k?_itRota.byKey[k]:[item];
+    let anual=0, ipoaExc=0, nOk=0, base=null;
+    itens.forEach(it=>{ const g=ganhoMensal(cli, it, r.origem, r.destino, r.produto, sel); if(!g) return;
+      anual+=g.anual; ipoaExc+=g.ipoaExc; nOk++; if(!base||it===item) base=g; });
+    if(!nOk) return null;
+    const nF=k?_nFluxosRota(k):1, div=nOk*nF, volKt=base.volKt/nF;
+    return {anual:anual/div, ipoaExc:ipoaExc/div, volKt, rsT:volKt>0?(anual/div)/(volKt*1000):0, meses:base.meses, nItens:nOk, nFluxos:nF};
   }
   function ganhoAcessCliente(cliArg){
     const cli=cliArg!=null?cliArg:pcCli;
@@ -4674,16 +4735,20 @@ if(D.comparativo && D.comparativo.tarifas){
     // valer aqui) — quando ativo, usa exatamente os meses selecionados em vez de "últimos 12".
     const perAtivo=!!(pcVolAnos.size||pcVolMeses.size);
     if(ehGrao && ownAll.length){
+      // varredura 24/nov/2026: janela da BASE (não do último mês da rota) e SEM o fator 12 ÷ meses:
+      // em grão, mês sem dado é mês sem embarque, não falta de dado. O fator inflava o card em
+      // R$ 87,8 mi (moderado) e R$ 268 mi (otimista).
+      const _gA=pcAncoraGlobal();
       const own=perAtivo
         ? ownAll.filter(r=>pcEmPeriodo(r.ano,r.mes,pcIdxMax(ownAll)))
-        : ult12Meses(ownAll);
+        : ownAll.filter(r=>{ const i=Number(r.ano)*12+Number(r.mes); return _gA>0?(i<=_gA&&i>_gA-12):true; });
       const somaSel=getter=>own.reduce((x,r)=>x+(r.n_cli_mes>=2?Math.max(0,getter(r)):0)*r.voltu,0);
       const somaMed=somaSel(r=>r.preco-r.med_mes), somaMin=somaSel(r=>r.preco-r.min_mes);
       // anualização por MESES DE CALENDÁRIO cobertos, nunca por nº de linhas: a série pode ter
       // mais de uma linha no mesmo mês (grades do mesmo produto) e `own.length` chegava a 12 com
       // só 9 meses de dado, travando o fator em 1 — um número de 9 meses saía rotulado "/ano".
       const nMes=nMesesDistintos(own);
-      const fator=(!perAtivo&&nMes<12&&nMes>0)?12/nMes:1;
+      const fator=1;
       // volume do período (kt) + delta de tarifa (R$/t) por cenário — pedido do usuário
       // (21/jul/2026): "colocar o volume do período e o ganho do delta tarifa em cada
       // cenário" na tabela "Ganho por rota". volT soma o volume de TODOS os meses do
@@ -4692,7 +4757,7 @@ if(D.comparativo && D.comparativo.tarifas){
       const volT=own.reduce((x,r)=>x+r.voltu,0);
       const deltaOtm=volT>0?somaMin/volT:0, deltaMod=volT>0?somaMed/volT:0;
       return {otm:somaMin*fator, mod:somaMed*fator, volKt:volT/1000*fator, deltaOtm, deltaMod,
-        modo:perAtivo?`período filtrado (${nMes} ${nMes===1?'mês':'meses'})`:(nMes>=12?'últimos 12 meses realizados':`anualizado (${nMes} ${nMes===1?'mês':'meses'} com dado)`), n:nMes};
+        modo:perAtivo?`período filtrado (${nMes} ${nMes===1?'mês':'meses'})`:`últimos 12 meses da base (${nMes} ${nMes===1?'mês':'meses'} com embarque)`, n:nMes};
     }
     const s=st(), cfg=s.iso[rkey(rSel)]||{};
     const volKt=cfg.volKt!=null?cfg.volKt:(rSel.vol_t?rSel.vol_t/1000:0);
@@ -4735,10 +4800,14 @@ if(D.comparativo && D.comparativo.tarifas){
     const iso=retroIsoCliente();
     // mesma chave de produto da isonomia (pcProdIso — grade pool, produto diferente não; ver lá)
     const isoDaRota=r=>r?iso.porRota.find(pr=>pr.rota.origem===r.origem&&pr.rota.destino===r.destino&&pcProdIso(pr.rota.produto)===pcProdIso(r.produto)):null;
+    // varredura 24/nov/2026: a isonomia da rota era atribuída a CADA fluxo da mesma rota (soma das
+    // linhas acima do card: Selecta 88,2 contra 71,1) e sumia da tabela quando a rota não tinha fluxo
+    const _vistoIso=new Set();
     const porFluxo=atuais.map(f=>{
       const rota=fluxoRota(f);
       const ac=retroAcessDaRota(f);
-      const pr=isoDaRota(rota);
+      let pr=isoDaRota(rota);
+      if(pr){ const kIso=pr.rota.origem+'|'+pr.rota.destino+'|'+pcProdIso(pr.rota.produto); if(_vistoIso.has(kIso)) pr=null; else _vistoIso.add(kIso); }
       const mod=(ac?ac.totDireto:0)+(pr?pr.mod:0);
       const otm=(ac?ac.totDireto+ac.totOsc:0)+(pr?pr.otm:0);
       return {f, rota, ac, pr, mod, otm};
@@ -4746,8 +4815,10 @@ if(D.comparativo && D.comparativo.tarifas){
     const totDireto=porFluxo.reduce((x,r)=>x+(r.ac?r.ac.totDireto:0),0);
     const totOsc=porFluxo.reduce((x,r)=>x+(r.ac?r.ac.totOsc:0),0);
     // retroativo = acessória indevida (teto) + sobrepreço histórico de isonomia (olhando pra trás)
+    const isoLinhasMod=porFluxo.reduce((x,r)=>x+(r.pr?r.pr.mod:0),0), isoLinhasOtm=porFluxo.reduce((x,r)=>x+(r.pr?r.pr.otm:0),0);
     return {otm: totDireto+totOsc+iso.otm, mod: totDireto+iso.mod, acessDir:totDireto, acessOsc:totOsc,
-             isoOtm:iso.otm, isoMod:iso.mod, totDireto, totOsc, iso, porFluxo};
+             isoOtm:iso.otm, isoMod:iso.mod, totDireto, totOsc, iso, porFluxo,
+             isoSemFluxoMod:Math.max(0,iso.mod-isoLinhasMod), isoSemFluxoOtm:Math.max(0,iso.otm-isoLinhasOtm)};
   }
 
   // RETROATIVO DE ISONOMIA (olhando pra trás): soma, em TODOS os meses realizados de cada rota do
@@ -4861,8 +4932,11 @@ if(D.comparativo && D.comparativo.tarifas){
   // Retorna os tetos por trecho e o GANHO R$/ano de cada simulador (frete acima do teto × volume).
   function tetoRegGains(){
     const reg=TETO_REG[pcCli]; if(!reg) return null;
-    const f=(pjDo(pcCli).filter(x=>!isRetro(x.fluxo)))[0];
-    const frete=f?f.frete:0, tarifa=f?f.tarifa_total:0, tetoBase=f?f.teto:0, volKt=volDefaultKt(f), prod=reg.produto;
+    // varredura 24/nov/2026: lia o 1º fluxo do cliente ("LD CELULOSE", 330 kt fixos da planilha);
+    // a rota real (EDC→VAZ) rodou 458 kt. Usa o fluxo de maior volume real dos últimos 12 meses.
+    const _fl=pjDo(pcCli).filter(x=>!isRetro(x.fluxo));
+    const f=_fl.map(x=>({x, v:volDefaultKtGanho(x)})).sort((a,b)=>b.v-a.v).map(o=>o.x)[0]||_fl[0];
+    const frete=f?f.frete:0, tarifa=f?f.tarifa_total:0, tetoBase=f?f.teto:0, volKt=f?(volDefaultKtGanho(f)||volDefaultKt(f)):0, prod=reg.produto;
     const st=pcTR[pcCli]||(pcTR[pcCli]={donor:'RMN', ref:'EFVM'});
     const segEFVM=reg.segmentos.find(s=>s.tem_teto_produto), segFCA=reg.segmentos.find(s=>!s.tem_teto_produto);
     const tetoEFVM=tetoANTTfer(segEFVM.ferrovia, prod, segEFVM.km);
@@ -7726,21 +7800,28 @@ const NOVAS={};   // resumos reaproveitados pela trilha de insights (RAIL)
     const F=(PJx.fluxos||[]).filter(f=>!ehRetro(f));
     const gCache={};
     const gDe=c=>{ if(!(c in gCache)){ try{ gCache[c]=API&&typeof API.ganhoAcessCliente==='function'?API.ganhoAcessCliente(c):null; }catch(e){ gCache[c]=null; } } return gCache[c]; };
+    // varredura 24/nov/2026: 79 dos 118 "vencidos" tinham preço de nov/2026 na Ficha (contrato
+    // renovado, só a data do cadastro ficou velha). Fluxo cujo item citado está faturando no mês
+    // de referência da ficha sai de "vencido" e vira "faturando".
+    const _fiAtual=new Set(((D.ficha&&D.ficha.itens)||[]).filter(x=>x.status==='atual').map(x=>x.item));
+    const _fatura=f=>{ const m=String(f.cobertura||'').match(/^ficha 2026 \(item (\d+)/); return !!(m&&_fiAtual.has(+m[1])); };
     const rows=F.map(f=>{
       const cli=API?API.canonPC(f.cliente):f.cliente;
       const g=gDe(cli), pf=g&&API?g.porFluxo[API.fkey(f)]:null;
-      const meses=f.vigencia?(new Date(f.vigencia)-new Date(hojeISO))/(864e5*30.44):null;
+      const _m0=f.vigencia?(new Date(f.vigencia)-new Date(hojeISO))/(864e5*30.44):null;
+      const faturando=_m0!=null&&_m0<0&&_fatura(f);
+      const meses=faturando?null:_m0;
       const fr=API?API.fluxoRota(f):{origem:null,produto:f.fluxo};
       const mod=pf?pf.mod:0, otm=pf?pf.otm:0;
       const prio=mod<=0?'—':(meses!=null&&meses<=6)?'A':(meses!=null&&meses<=12)?'B':'C';
       return {cliente:cli, fluxo:f.fluxo, rota:fr.origem?fr.origem+'→'+fr.destino:'—', produto:fr.produto,
-        vigencia:f.vigencia||null, meses, prio, mod, otm, f,
-        sit:meses==null?'sem data':meses<0?'vencido':meses<=12?'até 12 meses':'depois',
+        vigencia:f.vigencia||null, meses, prio, mod, otm, f, faturando,
+        sit:faturando?'faturando':meses==null?'sem data':meses<0?'vencido':meses<=12?'até 12 meses':'depois',
         alvo:alvoSet.has(cli)};
     });
     const ordPrio={A:0,B:1,C:2,'—':3};
     rows.forEach(r=>r.score=ordPrio[r.prio]*1e12-(r.mod||0));
-    NOVAS.venc={n:rows.length, vencidos:rows.filter(r=>r.sit==='vencido').length,
+    NOVAS.venc={n:rows.length, vencidos:rows.filter(r=>r.sit==='vencido').length, faturando:rows.filter(r=>r.sit==='faturando').length,
       ate12:rows.filter(r=>r.sit==='até 12 meses').length, semData:rows.filter(r=>r.sit==='sem data').length,
       ganhoA:rows.filter(r=>r.prio==='A').reduce((s,r)=>s+r.mod,0), nA:rows.filter(r=>r.prio==='A').length,
       topA:rows.filter(r=>r.prio==='A').sort((a,b)=>b.mod-a.mod)[0]||null,
@@ -7751,7 +7832,7 @@ const NOVAS={};   // resumos reaproveitados pela trilha de insights (RAIL)
       {k:'cliente',h:'Cliente',f:(v,r)=>v+' '+alvoPill(r.alvo)},
       {k:'rota',h:'Rota',f:(v,r)=>`<span class="mono">${v}</span>`},
       {k:'produto',h:'Produto',f:(v,r)=>`<span class="muted">${escAttr(v||'')}</span>${API&&API.seloRota?API.seloRota(r.f):''}`},
-      {k:'vigencia',h:'Vence em',f:(v,r)=>v?`<span class="mono" style="${r.sit==='vencido'?'color:var(--bad)':''}">${fmtD(v)}</span>`:'<span class="muted">sem data final</span>'},
+      {k:'vigencia',h:'Vence em',f:(v,r)=>v?`<span class="mono" style="${r.sit==='vencido'?'color:var(--bad)':''}">${fmtD(v)}</span>${r.faturando?' <span class="pill" title="vigência vencida no cadastro, mas o item está faturando no mês de referência da Ficha 2026">faturando</span>':''}`:'<span class="muted">sem data final</span>'},
       {k:'meses',h:'Meses',num:1,f:v=>v==null?'—':`<span style="${v<0?'color:var(--bad)':''}">${Math.round(v)}</span>`},
       {k:'mod',h:'Ganho moderado/ano',num:1,f:v=>v>0?BRLmi(v):'—'},
       {k:'otm',h:'Ganho otimista/ano',num:1,f:v=>v>0?`<span class="muted">${BRLmi(v)}</span>`:'—'},
@@ -8249,7 +8330,7 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
     const cliPor={}; (AL.clientes||[]).forEach(c=>{ (cliPor[c.alav]=cliPor[c.alav]||[]).push(c); });
     const F=NOVAS.ficha||{}, FPC=F.porCli||{}, V=NOVAS.venc||{}, VPC=V.porCli||{};
     const porto=((D.porto_servicos&&D.porto_servicos.porto)||[]).filter(r=>r.n_pares>=2);
-    const UNC={4:'itens',7:'linhas',11:'itens',12:'trocas',15:'linhas',22:'itens',29:'fluxos'};
+    const UNC={4:'itens',7:'linhas',11:'itens',12:'trocas',15:'linhas',18:'linhas',22:'itens',29:'fluxos',42:'kt abaixo do orçado'};
     const res=AL.catalogo.map(c=>{
       const porCli={}; let total=null, n=0;
       const add=(cli,v,k,det)=>{ const o=porCli[cli]=porCli[cli]||{v:null,n:0,det:''}; if(v!=null&&isFinite(v)) o.v=(o.v||0)+v; o.n+=k||0; if(det&&!o.det) o.det=det; };
@@ -8602,7 +8683,7 @@ const RAIL={
     const Oc=NOVAS.orc;
     if(Oc) it.push({hd:'O que a VLI orçou para 2027', ref:`Acessórias ${Oc.dAcess>0?'+':''}${(Oc.dAcess*100).toFixed(1).replace('.',',')}% · frete + DP ${Oc.dFrete>0?'+':''}${(Oc.dFrete*100).toFixed(1).replace('.',',')}%`,
       bd:`Mesmos meses (${Oc.per}), R$/t. Efeito só de preço no período: R$ ${N1(Oc.efTot)} mi, dos quais R$ ${N1(Oc.efAc)} mi em acessórias.`+(Oc.topAc.length?' Rotas com maior alta de acessória: '+Oc.topAc.map(c=>`${c.label} (R$ ${N1(c.efeito_acess_mi)} mi)`).join(', ')+'.':'')});
-    if(V) it.push({hd:'Abordar primeiro', ref:`${V.nA} fluxos prioridade A · ${BRLmi(V.ganhoA)}/ano`, bd:`Vencidos ou vencendo em até 6 meses, com ganho moderado. ${V.vencidos} fluxos já venceram e ${V.semData} não têm data final na base.`+(V.topA?` Maior: ${V.topA.cliente} ${V.topA.produto} ${V.topA.rota}.`:'')});
+    if(V) it.push({hd:'Abordar primeiro', ref:`${V.nA} fluxos prioridade A · ${BRLmi(V.ganhoA)}/ano`, bd:`Vencidos ou vencendo em até 6 meses, com ganho moderado. ${V.vencidos} fluxos já venceram, ${V.faturando||0} têm o cadastro vencido mas seguem faturando na Ficha 2026 e ${V.semData} não têm data final na base.`+(V.topA?` Maior: ${V.topA.cliente} ${V.topA.produto} ${V.topA.rota}.`:'')});
     return it;
   },
   portoservicos(){

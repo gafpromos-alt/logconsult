@@ -46,6 +46,39 @@ def fmt_tel(v):
 
 P24 = "panorama LIKE '2024%'"
 
+# ---- Regime de PIS/COFINS por cliente × família de produto (varredura de 24/nov/2026) ----
+# A Ficha de Fluxo e as tarifas vêm SEM ICMS e COM PIS/COFINS; o P&L vem bruto. Exportador de
+# grão, farelo, açúcar e celulose costuma ter a suspensão (contrato-padrão VLI, cl. 4.6; art. 40
+# da Lei 10.865/2004) e paga zero, enquanto o par sem o regime paga ~9,25% embutido. Comparar o
+# preço bruto dos dois põe tributo dentro do "ganho de isonomia". Regra: toda comparação ENTRE
+# clientes usa o preço LÍQUIDO de PIS/COFINS; o ganho volta aos termos do próprio cliente
+# (÷ (1 − alíquota dele)). Quem paga o mesmo tributo que os pares não muda nada.
+import unicodedata as _ud
+from functools import lru_cache as _lru
+@_lru(maxsize=None)
+def fam_pc(p):
+    """Família de produto para o regime tributário (a mesma função existe no painel: famPC)."""
+    s = _ud.normalize("NFKD", str(p or "")).encode("ascii", "ignore").decode().upper().strip()
+    if s.startswith("FARELO"): return "FARELO"
+    if s.startswith("SOJA") or s.startswith("MILHO"): return "GRAOS"
+    if s.startswith("ACUCAR"): return "ACUCAR"
+    return s.split(" ")[0] if s else ""
+_pc = q("""SELECT cliente, mercadoria, SUM(rec_total) rec, SUM(COALESCE(imp_pis,0)+COALESCE(imp_cofins,0)) pc
+           FROM vli_pnl WHERE modal='Ferrovia' AND realizado=1
+             AND (ano*12+mes) > (SELECT MAX(ano*12+mes) FROM vli_pnl WHERE realizado=1 AND modal='Ferrovia') - 12
+           GROUP BY cliente, mercadoria""")
+for _c in ("rec", "pc"):
+    _pc[_c] = pd.to_numeric(_pc[_c], errors="coerce").fillna(0.0)
+_pc["cliente"] = _pc["cliente"].map(canon)
+_pc["fam"] = _pc["mercadoria"].map(fam_pc)
+_pc = _pc.groupby(["cliente", "fam"])[["rec", "pc"]].sum()
+_pc = _pc[_pc["rec"] >= 1e6]
+_pc["aliq"] = (-_pc["pc"] / _pc["rec"]).clip(lower=0)
+# abaixo de 5% é ruído de mês isolado (ex.: 0,7% da BP Bioenergy em transição de regime): zero
+ALIQ_PC = {k: round(float(a), 4) for k, a in _pc["aliq"].items() if a >= 0.05}
+def aliq_pc(cli, prod):
+    return ALIQ_PC.get((cli, fam_pc(prod)), 0.0)
+
 # ============================ REGULATÓRIO FERROVIAS (ANTT) ============================
 # Leitura consultiva (IA): pontos das normas que PROTEGEM O CLIENTE = alavancas de negociação.
 # Barra direita = referência da norma + link ANTT. Atualizar conforme novas resoluções.
@@ -56,7 +89,7 @@ REGULATORIO = {
     {"id":"teto","titulo":"Teto tarifário","cor":"var(--bad)",
      "protege":"A tarifa de frete tem um MÁXIMO homologado pela ANTT por concessionária × trecho × mercadoria.",
      "pontos":[
-       "A concessionária não pode cobrar frete acima do teto homologado (Tabela Tarifária / Decisões SUFER).",
+       "Frete + direito de passagem não pode passar do teto homologado (Tabela Tarifária / Decisões SUFER). A manobra não entra nessa conta.",
        "Cobrança acima do teto é irregular → base para recuperação retroativa (cláusula contratual 3.6.1).",
        "O teto reajusta por índice/decisão — a trajetória é auditável; dá para reconstruir o teto de qualquer data.",
        "Quantificação do retroativo: janela de prescrição tipicamente de 5 anos (validar caso a caso com o jurídico) — define o período recuperável.",
@@ -67,7 +100,7 @@ REGULATORIO = {
      "protege":"Acessórias (manobra, carga/descarga, TVU, etc.) são negociadas livremente — MAS sob vigilância anti-abuso.",
      "pontos":[
        "A Res. 6.031/2023 veda expressamente 'práticas abusivas de preço' nas acessórias (Art. 15).",
-       "IPOA (Indicador de Participação das Operações Acessórias) = acessórias ÷ frete; referência ANTT ~24,8%.",
+       "IPOA (Indicador de Participação das Operações Acessórias) = acessórias sem DP ÷ (frete + DP); referência ANTT ~24,8%.",
        "Acessórias chegaram a 35% do frete em exportação → a ANTT monitora e pode acionar o CADE.",
        "Alavanca: IPOA estourado num fluxo = argumento de abuso para reduzir acessórias (não têm teto, mas têm régua)."],
      "normas":["Resolução ANTT 6.031/2023","Resolução ANTT 6.076/2026"]},
@@ -77,14 +110,14 @@ REGULATORIO = {
        "Acesso e condições não podem discriminar usuários em situações equivalentes.",
        "Diferença de tarifa entre clientes na mesma rota/produto, sem justificativa de custo, é questionável.",
        "Alavanca: benchmark de pares (quem paga mais na mesma rota) sustenta pedido de equalização."],
-     "normas":["Resolução ANTT 3.694/2011","Lei 10.233/2001"]},
+     "normas":["Lei 10.233/2001, art. 25 VIII","Resolução ANTT 3.694/2011"]},
     {"id":"acesso","titulo":"Livre acesso · Direito de passagem","cor":"var(--warn)",
      "protege":"A malha é compartilhada: direito de passagem e tráfego mútuo garantem acesso não discriminatório.",
      "pontos":[
        "Direito de passagem (trem de um operador na malha de outro) e tráfego mútuo são garantidos e arbitrados pela ANTT.",
        "A ANTT dirime conflitos e coíbe condutas anticompetitivas no compartilhamento da infraestrutura.",
        "Alavanca: rota cativa a uma concessionária pode ter alternativa via direito de passagem → poder de barganha."],
-     "normas":["Resolução ANTT 3.695/2011","Lei 14.273/2021"]},
+     "normas":["Resolução ANTT 5.943/2021","Lei 14.273/2021"]},
     {"id":"usuario","titulo":"Direitos do usuário & serviço adequado","cor":"var(--good)",
      "protege":"O cliente tem direito a serviço adequado, transparência e canal formal de reclamação.",
      "pontos":[
@@ -123,8 +156,8 @@ REGULATORIO = {
   "normas": [
     {"ref":"Resolução ANTT 3.694/2011","titulo":"Regulamento dos Usuários dos Serviços de Transporte Ferroviário de Cargas",
      "tema":"Direitos do usuário","url":"https://anttlegis.antt.gov.br/action/TematicaAction.php?acao=abrirVinculos&cotematica=18461996&cod_menu=8721&cod_modulo=618"},
-    {"ref":"Resolução ANTT 3.695/2011","titulo":"Direito de Passagem e Tráfego Mútuo — compartilhamento da malha",
-     "tema":"Acesso","url":"https://anttlegis.antt.gov.br/action/TematicaAction.php?acao=abrirVinculos&cotematica=18141546&cod_menu=8721&cod_modulo=618"},
+    {"ref":"Resolução ANTT 5.943/2021","titulo":"Compartilhamento da malha: direito de passagem, tráfego mútuo e Declaração de Rede",
+     "tema":"Acesso","url":"https://anttlegis.antt.gov.br/"},
     {"ref":"Resolução ANTT 6.031/2023","titulo":"Operações acessórias ao transporte ferroviário — veda preço abusivo (Art. 15)",
      "tema":"Acessórias / IPOA","url":"https://anttlegis.antt.gov.br/"},
     {"ref":"Resolução ANTT 6.076/2026","titulo":"Atualiza regras das operações acessórias / IPOA",
@@ -141,7 +174,7 @@ REGULATORIO = {
      "tema":"Marco legal","url":"https://www.planalto.gov.br/ccivil_03/decreto/1996/d1832.htm"},
     {"ref":"Resolução ANTT 3.696/2011","titulo":"Metas de produção por trecho (mínimo) e metas de segurança (máximo) das concessionárias",
      "tema":"Capacidade / metas","url":"https://www.legisweb.com.br/legislacao/?id=114292"},
-    {"ref":"Resolução ANTT 5.943/2021","titulo":"Declaração de Rede — capacidade instalada e ociosa por trecho, publicada anualmente",
+    {"ref":"Declaração de Rede (Res. ANTT 5.943/2021)","titulo":"Capacidade instalada e ociosa por trecho, publicada anualmente",
      "tema":"Capacidade / metas","url":"https://portal.antt.gov.br/en/declaracao-de-rede-2022"},
     {"ref":"Lei 13.448/2017","titulo":"Renovações antecipadas — investimentos obrigatórios com desconto de reequilíbrio; capacidade a terceiros e OFI",
      "tema":"Renovação / OFI","url":"https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2017/lei/l13448.htm"},
@@ -191,12 +224,16 @@ def _site(r):
     if "DESTINO" in s or s == "DESCARGA": return "DST " + str(r["destino"])
     return "ROTA " + str(r["origem"]) + "→" + str(r["destino"])
 hub["site"] = hub.apply(_site, axis=1)
-# estatísticas de pares (mesmo serviço × mesmo site, excluindo o próprio cliente)
+# estatísticas de pares (mesmo serviço × mesmo site, excluindo o próprio cliente), sobre o preço
+# LÍQUIDO de PIS/COFINS e devolvidas nos termos do próprio cliente (ver ALIQ_PC)
+hub["aliq_pc"] = [aliq_pc(c, p) for c, p in zip(hub["cliente"], hub["produto"])]
+hub["tarifa_liq"] = hub["tarifa"] * (1 - hub["aliq_pc"])
 def _pares(gr):
     out = []
     for i, r in gr.iterrows():
-        o = gr[gr["cliente"] != r["cliente"]]["tarifa"]
-        out.append((o.median() if len(o) else np.nan, o.min() if len(o) else np.nan, o.nunique() and gr[gr["cliente"]!=r["cliente"]]["cliente"].nunique()))
+        o = gr[gr["cliente"] != r["cliente"]]["tarifa_liq"]
+        f = 1 / (1 - r["aliq_pc"])
+        out.append((o.median() * f if len(o) else np.nan, o.min() * f if len(o) else np.nan, o.nunique() and gr[gr["cliente"]!=r["cliente"]]["cliente"].nunique()))
     gr = gr.copy()
     gr[["med_pares","min_pares","n_pares_cli"]] = pd.DataFrame(out, index=gr.index)
     return gr
@@ -392,7 +429,7 @@ acess_hub = {
     "comp_sites": rec(comp_sites.round(2).head(120)),
     "comp_estacoes": rec(comp_estacoes.round(2).head(120)),
     "sim": rec(hub[["cliente","itens","servicos","site","origem","destino","produto",
-                    "tarifa","med_pares","min_pares","n_pares_cli","elim","vol_t","vol_ano",
+                    "tarifa","tarifa_liq","med_pares","min_pares","n_pares_cli","elim","vol_t","vol_ano",
                     "ganho_otm_ano","ganho_mod_ano","alvo"]].round(2)),
 }
 
@@ -701,11 +738,26 @@ tf["_prod_grp_tarifa"] = np.where(
 gk = ["origem","destino","_prod_grp_tarifa"]
 grp = tf.groupby(gk)
 tf["n_cli_rota"] = grp["cliente"].transform("nunique")
-tf["med_pares"]  = grp["total"].transform("median")
-tf["min_pares"]  = grp["total"].transform("min")
-tf["max_pares"]  = grp["total"].transform("max")
-_min_idx = tf.loc[tf.groupby(gk)["total"].idxmin(), gk + ["cliente"]].rename(columns={"cliente":"melhor_pagador"})
-tf = tf.merge(_min_idx, on=gk, how="left")
+# varredura 24/nov/2026: a mediana e o menor incluíam o PRÓPRIO cliente e comparavam preço bruto
+# (com PIS/COFINS de quem não tem o regime de exportador). Agora: só os OUTROS clientes, sobre o
+# preço líquido de PIS/COFINS, devolvido nos termos do cliente (÷ (1 − alíquota dele)).
+tf["aliq_pc"] = [aliq_pc(c, p) for c, p in zip(tf["cliente"], tf["produto"])]
+tf["total_liq"] = tf["total"] * (1 - tf["aliq_pc"])
+_pm, _pn, _px, _pb = {}, {}, {}, {}
+for _k, _g in tf.groupby(gk):
+    for _i, _r in _g.iterrows():
+        _o = _g[_g["cliente"] != _r["cliente"]]
+        if not len(_o):
+            continue
+        _f = 1 / (1 - _r["aliq_pc"])
+        _pm[_i] = float(_o["total_liq"].median()) * _f
+        _pn[_i] = float(_o["total_liq"].min()) * _f
+        _px[_i] = float(_o["total_liq"].max()) * _f
+        _pb[_i] = _o.loc[_o["total_liq"].idxmin(), "cliente"]
+tf["med_pares"] = pd.Series(_pm)
+tf["min_pares"] = pd.Series(_pn)
+tf["max_pares"] = pd.Series(_px)
+tf["melhor_pagador"] = pd.Series(_pb)
 tf["gap_med"] = np.where(tf["n_cli_rota"]>=2, tf["total"]-tf["med_pares"], np.nan)
 tf["gap_pct"] = np.where(tf["n_cli_rota"]>=2, (tf["total"]/tf["med_pares"]-1)*100, np.nan)
 # anualização: volume do trio cliente×O/D (canônico), rateado entre os produtos do trio
@@ -793,18 +845,24 @@ comp_kpis = {"n_fluxos": int(len(tf)), "n_rotas_comp": int(tf[tf["n_cli_rota"]>=
 # jul/2026: filtro de mercadoria REMOVIDO (era só grãos) — o Painel do Cliente usa esta base
 # pra isonomia mês a mês de qualquer cliente (grãos/fert com lógica mensal como primária;
 # demais clientes ganham o filtro de mês/ano como visão secundária). ~5,5 mil linhas.
+# varredura 24/nov/2026: o P&L é bruto (ICMS e PIS/COFINS dentro). recfr_liq tira os tributos
+# linha a linha, na proporção da receita total da linha; a comparação entre clientes usa o
+# líquido e o ganho volta aos termos do cliente (preco ÷ preco_liq).
 saz = q("""SELECT cliente, origem, destino, mercadoria AS produto, ano, mes,
-                  SUM(rec_fr) recfr, SUM(vol_tu) voltu
+                  SUM(rec_fr) recfr, SUM(vol_tu) voltu,
+                  SUM(CASE WHEN rec_total > 0 THEN rec_fr * (1 + (COALESCE(imp_icms,0) + COALESCE(imp_iss,0)
+                      + COALESCE(imp_pis,0) + COALESCE(imp_cofins,0)) / rec_total) ELSE rec_fr END) recfr_liq
            FROM vli_pnl
            WHERE modal='Ferrovia'
              AND realizado=1
            GROUP BY cliente, origem, destino, mercadoria, ano, mes""")
 saz["cliente"] = saz["cliente"].map(canon)
-saz = saz.groupby(["cliente","origem","destino","produto","ano","mes"], as_index=False)[["recfr","voltu"]].sum()
+saz = saz.groupby(["cliente","origem","destino","produto","ano","mes"], as_index=False)[["recfr","voltu","recfr_liq"]].sum()
 # corta ruído de fluxos residuais (<1 mil t no mês — proporcional ao piso de 10 mil t/ano
 # usado no resto do painel, já que aqui a janela é 1 mês em vez de 1 ano)
 saz = saz[(saz["recfr"] > 0) & (saz["voltu"] >= 1000)]
 saz["preco"] = saz["recfr"] / saz["voltu"]
+saz["preco_liq"] = (saz["recfr_liq"] / saz["voltu"]).clip(lower=0)
 # jul/2026: isonomia de grãos no Corredor Norte — pedido do usuário. PIN/PPN são pontos de
 # escoamento da MESMA rota (PIN é onde outros players carregam, PPN é onde a Agrex carrega);
 # PPT/PIP idem (PPT = Nova Agri, PIP = ponto genérico dos demais). Pra fins de comparação de
@@ -847,7 +905,7 @@ if _ESPELHO_KM_RAZAO is not None:
         _espelho_mensal.append({
             "cliente": "CARAMURU (ref. km)", "origem": "EBJ", "destino": "IUF", "produto": produto_exato,
             "ano": int(ano), "mes": int(mes), "recfr": round(_preco_esp*_voltu_car, 2), "voltu": round(_voltu_car, 2),
-            "preco": _preco_esp, "origem_iso": "EBJ",
+            "preco": _preco_esp, "preco_liq": _preco_esp * (1 - aliq_pc("CARAMURU", produto_exato)), "origem_iso": "EBJ",
         })
     if _espelho_mensal:
         saz = pd.concat([saz, pd.DataFrame(_espelho_mensal)], ignore_index=True)
@@ -855,12 +913,31 @@ if _ESPELHO_KM_RAZAO is not None:
               f"CARAMURU EPO→ISN (razão km {_ESPELHO_KM_RAZAO:.3f})")
 
 gk_saz = ["origem_iso", "destino", "produto", "ano", "mes"]
+saz = saz.reset_index(drop=True)
 grp_saz = saz.groupby(gk_saz)
 saz["n_cli_mes"] = grp_saz["cliente"].transform("nunique")
-saz["med_mes"] = grp_saz["preco"].transform("median")
-saz["min_mes"] = grp_saz["preco"].transform("min")
-_min_idx_saz = saz.loc[grp_saz["preco"].idxmin(), gk_saz + ["cliente"]].rename(columns={"cliente": "melhor_pagador"})
-saz = saz.merge(_min_idx_saz, on=gk_saz, how="left")
+# pares = OUTROS clientes (antes a mediana e o menor incluíam o próprio cliente), preço líquido de
+# tributos, devolvido nos termos do cliente (fator preco ÷ preco_liq da própria linha)
+_fat = np.where(saz["preco_liq"] > 0, saz["preco"] / saz["preco_liq"], 1.0)
+_pl = saz["preco_liq"].to_numpy(float)
+_cl = saz["cliente"].to_numpy(object)
+_med = np.full(len(saz), np.nan); _min = np.full(len(saz), np.nan); _mp = np.full(len(saz), None, dtype=object)
+for _k, _idx in grp_saz.indices.items():
+    if len(_idx) < 2:
+        continue
+    _c = _cl[_idx]; _p = _pl[_idx]
+    for _j, _i in enumerate(_idx):
+        _m = _c != _c[_j]
+        if not _m.any():
+            continue
+        _po = _p[_m]
+        _med[_i] = float(np.median(_po)) * _fat[_i]
+        _a = int(np.argmin(_po))
+        _min[_i] = float(_po[_a]) * _fat[_i]
+        _mp[_i] = _c[_m][_a]
+saz["med_mes"] = _med
+saz["min_mes"] = _min
+saz["melhor_pagador"] = _mp
 saz["gap_pct"] = np.where(saz["n_cli_mes"] >= 2, (saz["preco"]/saz["med_mes"]-1)*100, np.nan)
 saz["gap_min_pct"] = np.where(saz["n_cli_mes"] >= 2, (saz["preco"]/saz["min_mes"]-1)*100, np.nan)
 saz["oport_mes"] = np.where((saz["preco"] > saz["med_mes"]) & (saz["n_cli_mes"] >= 2),
@@ -1876,9 +1953,14 @@ DATA_BASE = {
 # Porto: R$/t de cada cliente por UF portuária × produto (P&L 2025 Real), contra o MENOR e a
 # MEDIANA dos OUTROS clientes no mesmo porto/produto (o próprio cliente nunca é seu par — mesma
 # regra das acessórias). Oportunidade = (R$/t − menor par) × volume, só com ≥2 clientes.
-_po = q("""SELECT cliente, origem AS uf, mercadoria AS produto, SUM(rec_total) rec, SUM(vol_tu) vol
+# varredura 24/nov/2026: por TERMINAL (coluna `ativo`: TUF, TPD, TMPM, TPM...) e LÍQUIDO de
+# ICMS, ISS e PIS/COFINS. Por UF e bruto, o número misturava terminais diferentes e o tributo de
+# quem não tem o regime de exportador (R$ 331 mi caíam para R$ 223 mi contra o menor par).
+_po = q("""SELECT cliente, COALESCE(NULLIF(ativo,''), origem) AS uf, mercadoria AS produto,
+                  SUM(rec_total + COALESCE(imp_icms,0) + COALESCE(imp_iss,0) + COALESCE(imp_pis,0) + COALESCE(imp_cofins,0)) rec,
+                  SUM(vol_tu) vol
            FROM vli_pnl WHERE modal='Porto' AND panorama LIKE '2025%Real%'
-           GROUP BY cliente, origem, mercadoria""")
+           GROUP BY cliente, COALESCE(NULLIF(ativo,''), origem), mercadoria""")
 _po["cliente"] = _po["cliente"].map(canon)
 _po = _po.groupby(["cliente", "uf", "produto"], as_index=False)[["rec", "vol"]].sum()
 _po = _po[_po["vol"] >= 1000].copy()
@@ -1983,7 +2065,9 @@ try:
     _fs["fam"] = _fs["produto"].map(_fam)
     _fs["estacao"] = np.where(_fs["servico"].str.contains("ORIGEM"), _fs["origem"], _fs["destino"])
     _k = ["servico", "estacao", "fam"]
-    _pc = _fs.groupby(_k + ["cliente"])["valor"].median().reset_index()
+    _fs["aliq"] = [aliq_pc(c, p) for c, p in zip(_fs["cliente"], _fs["produto"])]
+    _fs["valor_liq"] = _fs["valor"] * (1 - _fs["aliq"])
+    _pc = _fs.groupby(_k + ["cliente"])["valor_liq"].median().rename("valor").reset_index()
     _st = _pc.groupby(_k)["valor"].agg(n_cli="count", minimo="min", mediana="median", maximo="max").reset_index()
     ficha["iso"] = rec(_st[_st["n_cli"] >= 3].round(2))
     _med_out = {}
@@ -1992,7 +2076,8 @@ try:
             _o = _g[_g["cliente"] != _c]["valor"]
             _med_out[_key + (_c,)] = float(_o.median()) if len(_o) >= 2 else None
     _fs["med_out"] = [_med_out.get((a, b, c, d)) for a, b, c, d in zip(_fs["servico"], _fs["estacao"], _fs["fam"], _fs["cliente"])]
-    _fs["gap"] = np.where(_fs["med_out"].notna(), np.maximum(0, _fs["valor"] - _fs["med_out"].fillna(0)), 0.0)
+    _fs["gap"] = np.where(_fs["med_out"].notna(),
+                          np.maximum(0, _fs["valor"] - _fs["med_out"].fillna(0) / (1 - _fs["aliq"])), 0.0)
     _gap_item = _fs.groupby("item")["gap"].sum()
     _ref_m = int(_fr.loc[_fr["status"] == "atual", "mes_ref"].max()) if len(_fr) else None
     ficha["mes_ref"] = _ref_m
@@ -2021,8 +2106,12 @@ try:
                  AND servico IN ('MANOBRA ORIGEM','MANOBRA DESTINO','TRANSBORDO ORIGEM')""")
     _pm["classe"] = _pm["produto"].map(_fam)
     _pm = _pm[_pm["classe"].isin(["GRAOS", "FARELO"])].copy()
+    # pares líquidos de PIS/COFINS (o painel devolve o par aos termos do cliente: ficha.aliq_item)
+    _pm["valor"] = _pm["valor"] * (1 - pd.Series([aliq_pc(c, p) for c, p in zip(_pm["cliente"], _pm["produto"])], index=_pm.index))
     _pm["estacao"] = np.where(_pm["servico"].str.contains("ORIGEM"), _pm["origem"], _pm["destino"])
     _pmc = _pm.groupby(["servico", "estacao", "classe", "mes", "cliente"])["valor"].median().reset_index()
+    ficha["aliq_item"] = {int(i): aliq_pc(c, p) for i, c, p in zip(_fr["item"], _fr["cliente"], _fr["produto"])
+                          if aliq_pc(c, p) > 0}
     ficha["pares_mes"] = {}
     for (_sv, _es, _cl, _ms), _g in _pmc.groupby(["servico", "estacao", "classe", "mes"]):
         ficha["pares_mes"][f"{_sv}|{_es}|{_cl}|{int(_ms)}"] = [[c, round(v, 2)] for c, v in zip(_g["cliente"], _g["valor"])]
@@ -2220,7 +2309,8 @@ data = {
   "meta": {"gerado_em": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
            "aviso":"CONFIDENCIAL — inclui P&L VLI e dados pessoais de CRM. Uso interno.",
            "todos_clientes": todos_clientes, "alvos_default": alvos_default,
-           "raw_counts": raw_counts, "data_base": DATA_BASE, "reajustes_resumo": REAJ_RESUMO},
+           "raw_counts": raw_counts, "data_base": DATA_BASE, "reajustes_resumo": REAJ_RESUMO,
+           "aliq_pc": {f"{c}|{f}": a for (c, f), a in ALIQ_PC.items()}},
   "kpis": kpis,
   "horizontes": horizontes,
   "portfolio": portfolio,

@@ -156,7 +156,7 @@ def testes_banco():
     tabs = {r[0] for r in q("SELECT name FROM sqlite_master WHERE type='table'")}
     if ok({"alavanca_catalogo", "alavanca_linha", "alavanca_cliente"} <= tabs, "tabelas de alavancas ausentes (rode add_alavancas.py)"):
         ids = [r[0] for r in q("SELECT id FROM alavanca_catalogo ORDER BY id")]
-        ok(ids == list(range(1, 31)), f"catálogo de alavancas incompleto: {len(ids)} de 30")
+        ok(ids == list(range(1, 47)), f"catálogo de alavancas incompleto: {len(ids)} de 46")
         txt = q("""SELECT titulo||norma||fonte||evidencia||COALESCE(uso,'')||COALESCE(tabela,'') FROM alavanca_catalogo
                    UNION ALL SELECT COALESCE(detalhe,'') FROM alavanca_linha UNION ALL SELECT COALESCE(detalhe,'') FROM alavanca_cliente""")
         n = sum(1 for (t,) in txt if "\u2013" in t or "\u2014" in t)
@@ -169,7 +169,12 @@ def testes_banco():
         n = q("""SELECT COUNT(*) FROM alavanca_cliente c LEFT JOIN alavanca_catalogo a ON a.id=c.alav WHERE a.id IS NULL""")[0][0]
         ok(n == 0, f"{n} valor(es) por cliente de alavanca inexistente")
 
-    # 12. auditoria de volume não piorou
+    # 12. varredura 24/nov/2026: a aba Regulatório não cita a Res. 3.695/2011 (revogada)
+    src = (BASE / "build_painel.py").read_text(encoding="utf-8")
+    ok("3.695" not in src, "build_painel.py ainda cita a Res. 3.695/2011 (revogada)")
+    ok("acessórias ÷ frete;" not in src, "aba Regulatório define IPOA sem o DP")
+
+    # 13. auditoria de volume não piorou
     r = subprocess.run([sys.executable, "-c", "import audit_volumes; audit_volumes.audit()"],
                        cwd=BASE, capture_output=True, text=True)
     m = re.search(r"FAIL — (\d+) instancia", r.stdout)
@@ -205,7 +210,7 @@ def testes_painel():
     # alavancas: 30 no painel; soma por cliente = total de cada alavanca em R$; nada não numérico;
     # IPOA e pares iguais aos da aba Ficha (um número, uma função)
     al = nv.get("alav") or {}
-    ok(al.get("n") == 30, f"aba Alavancas com {al.get('n')} alavancas (esperado 30)")
+    ok(al.get("n") == 46, f"aba Alavancas com {al.get('n')} alavancas (esperado 46)")
     for i, t in (al.get("totais") or {}).items():
         if t.get("total") is not None:
             ok(t["total"] == t["total"] and abs(t["total"] - t["somaCli"]) < 1,

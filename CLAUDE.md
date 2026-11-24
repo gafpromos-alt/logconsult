@@ -51,6 +51,14 @@ esses arquivos.
   da mesma classe e ferrovia, farelo só com farelo. Bloco `#pcAlavancas` no Painel do Cliente some no
   modo apresentação e não entra no relatório do cliente (usa P&L e ficha, internos da VLI). Texto sem
   travessão (teste). Normas: nunca Res. 3.695/2011 nem art. 35 da Lei 10.233.
+- **Varredura de 24/nov/2026** (regras em `../06_Corporate_Memory/Regras_e_Decisoes_LogConsultOS.md` §7):
+  comparação entre clientes sempre LÍQUIDA de PIS/COFINS (`ALIQ_PC`/`aliq_pc` no build, `fatorPC`/`famPC` e
+  `D.meta.aliq_pc` no painel, `ficha.aliq_item` no mês a mês; P&L também sem ICMS e ISS), par nunca é o
+  próprio cliente, janela de volume da base (pcUlt12Sum/volMensal12), grão = média dos itens da rota
+  (`ganhoMensalFluxo`, com cache), porto por terminal (`ativo`) e líquido. Alavancas 31 a 46 (grupos G e H)
+  cruzam o documento do cliente: tela F-LINK × TR, F-LINK × Ficha (faturado acima do contrato), contratos
+  lidos (`CONTRATOS_LIDOS` em add_alavancas.py; acrescentar ali cada contrato novo lido na íntegra), tabela
+  publicada anterior em `02_Regulatorio_Tetos/Tabelas_Acessorias/_Arquivo`. Manobra NUNCA entra no teste do teto.
 - `gerar_indice_videos.py` gera `09_Fotos/_indice_videos.csv` (diário de captura: vídeo →
   status/cliente/script). Rodar depois de minerar vídeos novos.
 - Regras de negócio que definem os números: `../06_Corporate_Memory/Regras_e_Decisoes_LogConsultOS.md`.
