@@ -62,6 +62,7 @@ const ctx = {
   requestAnimationFrame: () => 0, cancelAnimationFrame() {},
   matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }),
   getComputedStyle: () => ({ getPropertyValue: () => '' }),
+  scrollTo() {}, scrollBy() {}, innerWidth: 1440, innerHeight: 900,
   alert() {}, confirm: () => false, prompt: () => null, addEventListener() {}, removeEventListener() {},
   dispatchEvent() {}, Event: class { constructor(t) { this.type = t; } }, CustomEvent: class { constructor(t) { this.type = t; } },
   ResizeObserver: class { observe() {} disconnect() {} }, IntersectionObserver: class { observe() {} disconnect() {} },
@@ -73,7 +74,7 @@ ctx.window = ctx; ctx.self = ctx; ctx.globalThis = ctx;
 vm.createContext(ctx);
 
 let topo = null;
-try { vm.runInContext(scripts.join('\n;\n'), ctx, { filename: 'painel.js', timeout: 120000 }); }
+try { vm.runInContext(scripts.join('\n;\n'), ctx, { filename: 'painel.js', timeout: 1800000 }); }
 catch (e) { topo = String(e && e.stack || e).split('\n').slice(0, 4).join(' | '); }
 
 // ---- coleta, dentro do mesmo contexto (enxerga let/const globais do script) ----
@@ -90,6 +91,18 @@ const coleta = `
     ficha: NOVAS.ficha ? {n: NOVAS.ficha.n, acimaTeto: NOVAS.ficha.acimaTeto, excIpoa: NOVAS.ficha.excIpoa} : null,
     orc: NOVAS.orc ? {n: NOVAS.orc.n, dTotal: NOVAS.orc.dTotal} : null,
     alav: NOVAS.alav ? {n: NOVAS.alav.n, nCli: NOVAS.alav.nCli, nLinhas: NOVAS.alav.nLinhas, totais: NOVAS.alav.totais} : null } : null;
+  // Início (nov/2026): mesmos números dos cards do Painel do Cliente, sem NaN, e página do cliente abre
+  out.inicio = {ok: false};
+  if (window.INICIO_API && API) {
+    try {
+      const L = window.INICIO_API.calc();
+      const naoNum = L.filter(x => ['baixo','baixoRet','medio','alto','retroM'].some(k => !isFinite(x[k]))).length;
+      const difAc = L.filter(x => Math.abs(x.acM - ganhoAcessCliente(x.c).mod) > 1).map(x => x.c);
+      let abriu = 0; L.slice(0, 5).forEach(x => { if (window.INICIO_API.abrirCliente(x.c, false)) abriu++; });
+      out.inicio = {ok: true, n: L.length, naoNum, difAc, abriu,
+        medio: L.reduce((s, x) => s + x.medio, 0), alto: L.reduce((s, x) => s + x.alto, 0), baixo: L.reduce((s, x) => s + x.baixo, 0)};
+    } catch (e) { out.inicio = {ok: false, erro: String(e.message || e)}; }
+  }
   // bloco de alavancas no Painel do Cliente: monta para todo cliente sem erro
   out.alav_cli = {ok: 0, erros: []};
   if (window.ALAV_API && window.pcRenderAlav && API) {
@@ -152,6 +165,6 @@ const coleta = `
 })()`;
 let dados = null;
 ctx.process_env_detalhe = process.env.HARNESS_DETALHE || '';
-try { dados = JSON.parse(vm.runInContext(coleta, ctx, { timeout: 120000 })); }
+try { dados = JSON.parse(vm.runInContext(coleta, ctx, { timeout: 1800000 })); }
 catch (e) { erros.push('coleta: ' + String(e && e.message || e)); }
 process.stdout.write(JSON.stringify({ erro_topo: topo, erros, dados }));

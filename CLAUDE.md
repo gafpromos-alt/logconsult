@@ -59,6 +59,12 @@ esses arquivos.
   cruzam o documento do cliente: tela F-LINK × TR, F-LINK × Ficha (faturado acima do contrato), contratos
   lidos (`CONTRATOS_LIDOS` em add_alavancas.py; acrescentar ali cada contrato novo lido na íntegra), tabela
   publicada anterior em `02_Regulatorio_Tetos/Tabelas_Acessorias/_Arquivo`. Manobra NUNCA entra no teste do teto.
+- **Navegação nov/2026:** tela inicial `#inicio` (ganhos por cliente em baixo, médio e alto risco, via
+  `PC_API.resumoCliente`, sem conta nova; baixo = alavancas com documento 1, 5, 33, 34 por ano e 31, 35, 36 +
+  acessória vedada do retroativo como recuperação única), página do cliente `#cliente/NOME`, trilha no topo,
+  busca global, histórico do navegador (`pushState`). Menu em 6 grupos; toda tela antiga segue no menu.
+  Visual do GestALB (Inter, cinza #F5F5F7, cartões sem sombra, controle segmentado). Cartão explicativo:
+  qualquer elemento com `data-hc` (bloco 10 do template). O Início calcula depois de desenhar (`renderDepois`).
 - `gerar_indice_videos.py` gera `09_Fotos/_indice_videos.csv` (diário de captura: vídeo →
   status/cliente/script). Rodar depois de minerar vídeos novos.
 - Regras de negócio que definem os números: `../06_Corporate_Memory/Regras_e_Decisoes_LogConsultOS.md`.

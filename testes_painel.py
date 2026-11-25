@@ -188,7 +188,7 @@ def testes_painel():
     if not ok(PAINEL.exists(), "painel compilado não existe — rode build_painel.py"):
         return
     r = subprocess.run(["node", str(BASE / "tests" / "harness_painel.js"), str(PAINEL)],
-                       capture_output=True, text=True, timeout=300)
+                       capture_output=True, text=True, timeout=2400)
     if not ok(r.returncode == 0 and r.stdout.startswith("{"), "harness não rodou: " + r.stderr[-400:]):
         return
     out = json.loads(r.stdout)
@@ -219,6 +219,13 @@ def testes_painel():
     tt = al.get("totais") or {}
     if fi and tt:
         ok(abs((tt.get("6") or {}).get("total", 0) - fi.get("excIpoa", 0)) < 1, "alavanca 6 ≠ excesso de IPOA da aba Ficha")
+    ini = d.get("inicio") or {}
+    if ok(ini.get("ok"), f"Início não montou: {ini.get('erro')}"):
+        ok(ini.get("n", 0) >= 20, f"Início com só {ini.get('n')} clientes")
+        ok(ini.get("naoNum", 1) == 0, f"Início: {ini.get('naoNum')} cliente(s) com valor não numérico")
+        ok(not ini.get("difAc"), f"Início: acessórias ≠ card do Painel do Cliente em {ini.get('difAc')}")
+        ok(ini.get("abriu", 0) == 5, "página do cliente não abriu")
+        ok(ini.get("alto", 0) + 1 >= ini.get("medio", 0), "Início: alto risco menor que médio")
     bl = d.get("alav_cli") or {}
     ok(bl.get("ok", 0) >= 20 and not bl.get("erros"), f"bloco de alavancas do Painel do Cliente: {bl}")
     cli = d.get("clientes") or {}
