@@ -542,7 +542,7 @@ details.ini-more .panel{margin-top:12px}
         <div class="kpis" id="kpisBasePot" style="margin-bottom:12px"></div>
         <div class="panel">
           <h2>Portfólio de projetos — por cliente</h2>
-          <div class="desc">Filtro é <b>risco</b> (alto/médio/baixo) — derivado de probabilidade × complexidade. Classifique aqui mesmo (aplica em bloco a todas as oportunidades do cliente) ou clique no cliente pra abrir a tela dele e classificar fluxo a fluxo. <b>Otimista</b> = melhor caso (menor tarifa entre os pares, ou maior delta de acessória/teto possível). <b>Moderado</b> = cenário ponderado, sobre a mediana dos pares. Fonte: só as linhas marcadas como <b>Alvo</b> nas abas Acessórias, Teto Tarifário e Comparativo de Tarifas — 1 linha por cliente aqui, nunca fluxo a fluxo.</div>
+          <div class="desc">Filtro é <b>risco</b> (alto/médio/baixo) — derivado de probabilidade × complexidade. Classifique aqui mesmo (aplica em bloco a todas as oportunidades do cliente) ou clique no cliente pra abrir a tela dele e classificar fluxo a fluxo. <b>Otimista</b> = melhor caso (menor tarifa entre os pares, ou maior delta de acessória/teto possível). <b>Moderado</b> = cenário ponderado, sobre a mediana dos pares. Fonte: só as linhas marcadas como <b>Alvo</b> nas abas Acessórias, Teto Tarifário e Comparativo de Tarifas. A acessória marcada vale o que o Painel do Cliente calcula para a rota e conta uma vez por rota e produto.</div>
           <div class="controls">
             <input type="search" id="bpSearch" placeholder="Buscar cliente / rota…">
             <span class="chip on" data-bprisco="todos">Todos</span>
@@ -568,7 +568,7 @@ details.ini-more .panel{margin-top:12px}
           <div class="tbl-wrap" style="max-height:360px"><table id="tBasePotDetalhe"></table></div>
           <div class="note" id="bpRacional" style="display:none;margin-top:14px;font-size:13.5px;line-height:1.7"></div>
           <h3 style="margin-top:18px;font-size:14px">Projeção mês a mês</h3>
-          <div class="desc" style="margin-bottom:8px">Ganho anual dividido em 12 parcelas iguais (não é histórico realizado — é a projeção de captura, mês a mês, se a renegociação for fechada agora). Comparativo = de onde vem o ganho daquele mês.</div>
+          <div class="desc" style="margin-bottom:8px">Projeção de captura se a renegociação for fechada agora (não é histórico). Grãos e farelo seguem o volume e o preço de cada mês; os demais, 12 parcelas iguais. Comparativo = de onde vem o ganho daquele mês.</div>
           <div class="tbl-wrap"><table id="tBpMensal"></table></div>
         </div>
       </div>
@@ -1997,6 +1997,7 @@ if(D.comparativo && D.comparativo.tarifas){
     const avg=(ps+cs)/2;
     return avg>=2.5?'baixo':avg>=1.5?'medio':'alto';
   }
+  const bpRiscoO=o=>(!o.prob&&!o.cplx&&o.umPar)?'alto':bpRisco(o.prob,o.cplx);   // um só cliente par: risco alto até o sócio classificar
   function loadFlagSet(key){ try{const s=localStorage.getItem(key); return s?new Set(JSON.parse(s)):new Set();}catch(e){return new Set();} }
   const _bpCompFlags=loadFlagSet('lc_comp_rota_alvo_v1');
   const _bpAcessFlags=loadFlagSet('lc_acess_rota_alvo_v1');
@@ -2006,7 +2007,7 @@ if(D.comparativo && D.comparativo.tarifas){
     const mod=r.oport_ano||0, otm=Math.max(r.oport_min_ano||0, mod);
     return {cliente:r.cliente, origem:r.origem, destino:r.destino, produto:r.produto, corredor:r.corredor,
       tipo:'preco', tipo_label:'Diferencial de preço',
-      valor_mes:mod/12, valor_ano_otimista:otm, valor_ano_moderado:mod, vigencia:r.vigencia, alvo:!!r.alvo, _src:r, fonteAba:'Comparativo de Tarifas',
+      valor_mes:mod/12, valor_ano_otimista:otm, valor_ano_moderado:mod, vigencia:r.vigencia, alvo:!!r.alvo, _src:r, fonteAba:'Comparativo de Tarifas', umPar:r.n_cli_rota===2,
       racional:`Tarifa atual R$ ${N1(r.total)}/t vs. mediana dos pares R$ ${r.med_pares!=null?N1(r.med_pares):'—'}/t`
         +(r.min_pares!=null?` (menor pagador R$ ${N1(r.min_pares)}/t)`:'')
         +`. Gap de ${r.gap_pct!=null?r.gap_pct.toFixed(1):'—'}% sobre a mediana — marcado como alvo na aba Comparativo de Tarifas.`};
@@ -2015,7 +2016,7 @@ if(D.comparativo && D.comparativo.tarifas){
     const mod=r.ganho_mod_ano||0, otm=Math.max(r.ganho_otm_ano||0, mod);
     return {cliente:r.cliente, origem:r.origem||'—', destino:r.destino||'—', produto:r.produto, corredor:null,
       tipo:'acessoria', tipo_label:'Diferencial de acessórias',
-      valor_mes:mod/12, valor_ano_otimista:otm, valor_ano_moderado:mod, vigencia:null, alvo:!!r.alvo, _src:r, fonteAba:'Acessórias',
+      valor_mes:mod/12, valor_ano_otimista:otm, valor_ano_moderado:mod, vigencia:null, alvo:!!r.alvo, _src:r, fonteAba:'Acessórias', umPar:r.n_pares_cli===1,
       racional:`${r.servicos} em ${r.site}: paga R$ ${N1(r.tarifa)}/t vs. mediana dos pares R$ ${r.med_pares!=null?N1(r.med_pares):'—'}/t`
         +(r.min_pares!=null?` (menor pagador R$ ${N1(r.min_pares)}/t)`:'')
         +'. Marcado como alvo na aba Acessórias.'};
@@ -2027,16 +2028,16 @@ if(D.comparativo && D.comparativo.tarifas){
       // aparece como contexto. Entrava como "Diferencial de teto" e confundia a leitura do sócio.
       // ktipo guarda a chave antiga para não perder probabilidade e complexidade já classificadas.
       tipo:'acessoria', ktipo:'teto', tipo_label:'Diferencial de acessórias',
-      valor_mes:mod/12, valor_ano_otimista:otm, valor_ano_moderado:mod, vigencia:r.vigencia, alvo:!!r.alvo, _src:r, fonteAba:'Teto Tarifário',
-      racional:`Acessórias cobradas R$ ${N1(r.acessorias)}/t`+((r.dp||0)>0?` (inclui R$ ${N1(r.dp)}/t de direito de passagem)`:'')
-        +` contra referência de R$ ${r.acess_sugerida_moderado!=null?N1(r.acess_sugerida_moderado):'n/d'}/t (${r.acess_sugerida_fonte||'estimativa'})`
-        +`. Frete + DP em ${r.pct_teto!=null?PCT(r.pct_teto*100):'n/d'} do teto, só como contexto: o ganho aqui é de acessória. Marcado como alvo na aba Teto Tarifário.`};
+      valor_mes:mod/12, valor_ano_otimista:otm, valor_ano_moderado:mod, vigencia:r.vigencia, alvo:!!r.alvo, _src:r, fonteAba:'Teto Tarifário', umPar:Math.max(r.n_par_ao||0,r.n_par_ad||0)===1,
+      racional:`Acessórias sem direito de passagem R$ ${N1(r.acess_sdp)}/t`
+        +(r.acess_sugerida_moderado!=null?` contra R$ ${N1(r.acess_sugerida_moderado)}/t trazendo cada manobra à mediana dos pares na mesma estação`:`, sem par na mesma estação e família (ganho zero; a estimativa pelo IPOA é só indicação)`)
+        +`. Frete + DP em ${r.pct_teto!=null?PCT(r.pct_teto*100):'n/d'} do teto da rota inteira, só como contexto. Marcado como alvo na aba Teto Tarifário.`};
   });
   const oportunidades=[...oportPreco, ...oportAcess, ...oportTeto];
   oportunidades.forEach(o=>{
     const k=bpKey(o);
     o.prob=bpProbMap[k]||''; o.cplx=bpCplxMap[k]||'';
-    o.risco=bpRisco(o.prob,o.cplx);
+    o.risco=bpRiscoO(o);
   });
 
   const _cliMap=new Map();
@@ -2054,12 +2055,12 @@ if(D.comparativo && D.comparativo.tarifas){
   const BP={oportunidades, por_cliente:porCliente};
   BP_GLOBAL=BP;
 
-  const totAno=porCliente.reduce((s,c)=>s+(c.potencial_ano_moderado||0),0);
-  const totOtm=porCliente.reduce((s,c)=>s+(c.potencial_ano_otimista||0),0);
+  let totAno=porCliente.reduce((s,c)=>s+(c.potencial_ano_moderado||0),0);
+  let totOtm=porCliente.reduce((s,c)=>s+(c.potencial_ano_otimista||0),0);
   function kpisBpTopo(){
     const nAlto=oportunidades.filter(o=>o.risco==='alto').length;
     kpiRow('kpisBasePot',[
-      ['Potencial moderado', BRLmi(totAno),'/ano — soma de preço + acessórias + teto, clientes marcados','hl'],
+      ['Potencial moderado', BRLmi(totAno),'/ano, preço e acessórias dos clientes marcados; acessória pelo valor do Painel do Cliente','hl'],
       ['Potencial otimista', BRLmi(totOtm),'/ano — melhor caso por oportunidade',''],
       ['Clientes mapeados', porCliente.length,'com pelo menos 1 oportunidade marcada como alvo',''],
       ['Oportunidades de risco alto', nAlto,'de '+oportunidades.length+' — reavaliar probabilidade/complexidade',''],
@@ -2078,6 +2079,46 @@ if(D.comparativo && D.comparativo.tarifas){
     const vals=[...new Set(oportunidades.filter(o=>o.cliente===cliente).map(o=>o[campo]||''))];
     return vals.length===1?vals[0]:'';
   }
+  /* ---- 25/nov/2026: UM NÚMERO, UMA FUNÇÃO também no Portfólio por Cliente ----
+     A oportunidade de acessória marcada (aba Acessórias ou aba Teto) passa a valer o que o Painel do
+     Cliente calcula para a mesma rota e produto (PC_API: pares na estação e família, líquido de
+     PIS/COFINS, sem DP, volume uma vez por rota, grãos e farelo mês a mês). Várias marcações na
+     mesma rota e produto contam uma vez: a primeira leva o valor, as demais ficam "já contada".
+     Rota sem fluxo no Painel do Cliente mantém a conta da aba de origem. Roda depois que o PC_API
+     existe (chamada no fim do script). */
+  const bpNormP=p=>String(p||'').replace(/\((?:ITEM\s+)?\d+\)/gi,' ').toUpperCase().split(/\s+/).filter(t=>t&&!['DE','DO','DA'].includes(t)).join(' ');
+  function bpValorPC(o){
+    const API=window.PC_API; if(!API) return null;
+    const c=API.canonPC(o.cliente);
+    const fs=API.pjDo(c).filter(f=>!API.isRetro(f.fluxo)).filter(f=>{ const ro=API.fluxoRota(f);
+      return ro&&ro.origem===o.origem&&ro.destino===o.destino&&bpNormP(ro.produto)===bpNormP(o.produto); });
+    if(!fs.length) return null;
+    const g=API.ganhoAcessCliente(c).porFluxo||{};
+    let mod=0, otm=0; const serie=new Array(12).fill(0); let temSerie=false;
+    fs.forEach(f=>{ const x=g[API.fkey(f)]||{}; mod+=x.mod||0; otm+=x.otm||0;
+      const gm=x.mensal&&API.mensalFluxo?API.mensalFluxo(f,'med'):null;
+      const base=gm&&gm.meses?gm.meses.reduce((a,m)=>a+m.gap*m.vol,0):0;
+      if(base>0){ temSerie=true; gm.meses.forEach(m=>{ serie[m.mes-1]+=(x.mod||0)*(m.gap*m.vol)/base; }); }
+      else for(let i=0;i<12;i++) serie[i]+=(x.mod||0)/12; });
+    return {mod, otm:Math.max(otm,mod), n:fs.length, serie:temSerie?serie:null};
+  }
+  function bpAplicaPC(){
+    if(!window.PC_API) return;
+    const grupos=new Map();
+    oportunidades.filter(o=>o.tipo==='acessoria').forEach(o=>{ const k=[window.PC_API.canonPC(o.cliente),o.origem,o.destino,bpNormP(o.produto)].join('|');
+      if(!grupos.has(k)) grupos.set(k,[]); grupos.get(k).push(o); });
+    grupos.forEach(os=>{ let v=null; try{ v=bpValorPC(os[0]); }catch(e){ console.error('Portfólio × Painel do Cliente:', e); }
+      if(!v) return;
+      os.sort((a,b)=>(a.ktipo==='teto'?0:1)-(b.ktipo==='teto'?0:1));
+      os.forEach((o,i)=>{ if(o.valor_aba_mod===undefined){ o.valor_aba_mod=o.valor_ano_moderado; o.valor_aba_otm=o.valor_ano_otimista; }
+        o.pc=v; o.dup=i>0; o.valor_ano_moderado=i?0:v.mod; o.valor_ano_otimista=i?0:v.otm; o.valor_mes=o.valor_ano_moderado/12; o.serieMes=i?null:v.serie; }); });
+    porCliente.forEach(c=>{ const os=oportunidades.filter(o=>o.cliente===c.cliente);
+      c.potencial_ano_moderado=os.reduce((a,o)=>a+(o.valor_ano_moderado||0),0); c.potencial_ano_otimista=os.reduce((a,o)=>a+(o.valor_ano_otimista||0),0); });
+    porCliente.sort((a,b)=>(b.potencial_ano_moderado||0)-(a.potencial_ano_moderado||0));
+    totAno=porCliente.reduce((a,c)=>a+(c.potencial_ano_moderado||0),0); totOtm=porCliente.reduce((a,c)=>a+(c.potencial_ano_otimista||0),0);
+    kpisBpTopo(); bpFilterPortfolio();
+  }
+  window.BP_PC={aplica:bpAplicaPC, valor:bpValorPC};
   function bpRecalcCliente(cliente){
     const c=porCliente.find(x=>x.cliente===cliente); if(!c) return;
     const riscos=oportunidades.filter(o=>o.cliente===cliente).map(o=>o.risco);
@@ -2118,7 +2159,7 @@ if(D.comparativo && D.comparativo.tarifas){
     oportunidades.filter(o=>o.cliente===cliente).forEach(o=>{
       if(selP){ o.prob=selP.value; if(selP.value) bpProbMap[bpKey(o)]=selP.value; else delete bpProbMap[bpKey(o)]; }
       if(selC){ o.cplx=selC.value; if(selC.value) bpCplxMap[bpKey(o)]=selC.value; else delete bpCplxMap[bpKey(o)]; }
-      o.risco=bpRisco(o.prob,o.cplx);
+      o.risco=bpRiscoO(o);
     });
     if(selP) bpProbSave(); if(selC) bpCplxSave();
     bpRecalcCliente(cliente);
@@ -2166,7 +2207,10 @@ if(D.comparativo && D.comparativo.tarifas){
   function bpRenderDetalhe(){
     const rows=BP.oportunidades.filter(o=>o.cliente===bpCliAtual && (!bpTipoF||o.tipo===bpTipoF));
     const cols=[
-      {k:'tipo_label',h:'Tipo',f:(v,r)=>`<span class="chip" style="cursor:default;background:${TIPO_COL[r.tipo]||'var(--info)'};color:#fff;opacity:.85">${v}</span>`},
+      {k:'tipo_label',h:'Tipo',f:(v,r)=>`<span class="chip" style="cursor:default;background:${TIPO_COL[r.tipo]||'var(--info)'};color:#fff;opacity:.85">${v}</span>`
+        +(r.umPar?' <span class="pill" title="Só um cliente par: mediana e menor são o mesmo valor. Risco alto por padrão.">um par</span>':'')
+        +(r.dup?' <span class="pill" title="A mesma rota e produto já está em outra oportunidade marcada; o valor conta uma vez.">já contada</span>':'')
+        +(r.pc&&!r.dup?' <span class="pill" title="Valor calculado pelo Painel do Cliente (regra vigente)">Painel do Cliente</span>':'')},
       {k:'origem',h:'Rota',f:(v,r)=>`<span class="mono">${v}→${r.destino}</span>`},
       {k:'produto',h:'Produto',f:v=>`<span class="muted">${v}</span>`},
       {k:'risco',h:'Risco',f:v=>`<span class="pill" style="color:${RISK_COL[v]};background:rgba(255,255,255,.06)">${RISK_NAME[v]}</span>`},
@@ -2184,7 +2228,7 @@ if(D.comparativo && D.comparativo.tarifas){
     if(!o) return;
     if(selP){ o.prob=selP.value; bpProbMap[bpKey(o)]=selP.value; if(!selP.value) delete bpProbMap[bpKey(o)]; bpProbSave(); }
     if(selC){ o.cplx=selC.value; bpCplxMap[bpKey(o)]=selC.value; if(!selC.value) delete bpCplxMap[bpKey(o)]; bpCplxSave(); }
-    o.risco=bpRisco(o.prob,o.cplx);
+    o.risco=bpRiscoO(o);
     const tr=e.target.closest('tr'); if(tr){
       const cell=tr.children[3]; // coluna Risco
       cell.innerHTML=`<span class="pill" style="color:${RISK_COL[o.risco]};background:rgba(255,255,255,.06)">${RISK_NAME[o.risco]}</span>`;
@@ -2205,55 +2249,46 @@ if(D.comparativo && D.comparativo.tarifas){
     const r=o._src||{}, L=(a,b,c)=>`<tr${c?' class="tot"':''}><td>${a}</td><td class="n">${b}</td></tr>`;
     const tab=(heads,rows)=>rows.length?`<div class="tbl-wrap" style="max-height:260px"><table class="cx-t"><thead><tr>${heads.map((h,i)=>`<th${i?' class="n"':''}>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(l=>`<tr>${l.map((c,i)=>`<td${i?' class="n"':''}>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:'<p class="muted">Sem par para listar.</p>';
     let conta='', pares='', avisos=[];
+    const vAbaM=o.valor_aba_mod!==undefined?o.valor_aba_mod:o.valor_ano_moderado, vAbaO=o.valor_aba_otm!==undefined?o.valor_aba_otm:o.valor_ano_otimista;
     if(o.ktipo==='teto'){
-      const dp=r.dp||0, cob=r.acessorias||0, refM=r.acess_sugerida_moderado, refO=r.acess_sugerida, vol=r.vol12_kt||0;
+      const dp=r.dp||0, T=(D.teto&&D.teto.fluxos)||[];
+      const temPar=(r.n_par_ao||0)>0||(r.n_par_ad||0)>0;
+      const lado=(nome,v,med,min,n)=>L(nome,'R$ '+bpN2(v)+'/t')+((n||0)>0?L('&nbsp;&nbsp;mediana e menor de '+n+' cliente(s) par na estação','R$ '+bpN2(med)+' · R$ '+bpN2(min)):L('&nbsp;&nbsp;sem par na estação','ganho zero'));
       conta=`<table class="cx-c">`+
-        (r.acess_origem!=null?L('Manobra na origem', 'R$ '+bpN2(r.acess_origem)+'/t')+L('Manobra no destino','R$ '+bpN2(r.acess_destino)+'/t')+L('Outras (transbordo, direito de passagem e demais)','R$ '+bpN2(r.acess_outras)+'/t'):'')+
-        L('Acessórias cobradas','R$ '+bpN2(cob)+'/t',1)+
-        (dp>0?L('das quais direito de passagem','R$ '+bpN2(dp)+'/t'):'')+
-        L('Referência, moderado ('+escAttr(r.acess_sugerida_fonte||'')+')','R$ '+bpN2(refM)+'/t')+
-        L('Diferença, moderado','R$ '+bpN2(r.acess_delta_moderado)+'/t')+
-        L('Volume dos últimos 12 meses', vol?N1(vol)+' kt':'n/d')+
-        L('Ganho moderado por ano', BRL0(o.valor_ano_moderado),1)+
-        L('Referência, otimista (menor par)','R$ '+bpN2(refO)+'/t')+L('Ganho otimista por ano', BRL0(o.valor_ano_otimista),1)+
-        L('Frete + DP sobre o teto', r.pct_teto!=null?PCT(r.pct_teto*100)+' (frete R$ '+bpN2(r.frete)+', teto R$ '+bpN2(r.teto)+')':'n/d')+`</table>`;
-      const T=(D.teto&&D.teto.fluxos)||[];
-      const fam=x=>x.fam_vtu?('FAM|'+x.origem):(x.produto+'|'+x.origem+'|'+x.destino);
-      const ps=T.filter(x=>x.cliente!==r.cliente&&fam(x)===fam(r)&&x.acessorias!=null);
-      if(ps.length){
-        pares=`<h4>Pares da família: ${r.fam_vtu?'carvão, coque e antracito com origem em VTU':'mesmo produto, origem e destino'}</h4>`+
-          tab(['Cliente','Item','Rota','Acessórias R$/t','das quais DP'], ps.sort((a,b)=>a.acessorias-b.acessorias).map(x=>[escAttr(x.cliente), x.item, x.origem+'→'+x.destino, bpN2(x.acessorias), (x.dp||0)>0?bpN2(x.dp):'']))+
-          `<p class="muted">Menor par R$ ${bpN2(Math.min(...ps.map(x=>x.acessorias)))}/t (otimista) · mediana R$ ${bpN2(bpMed(ps.map(x=>x.acessorias)))}/t (moderado).</p>`;
-      } else {
-        const ipoaRef=(D.teto&&D.teto.ipoa_ref)||0.248, a=(r.frete||0)>0?ipoaRef*r.frete:null;
-        const cl=T.filter(x=>x.cliente!==r.cliente&&x.produto===r.produto&&x.corredor===r.corredor&&x.acessorias!=null);
-        const b=cl.length?cl.reduce((s2,x)=>s2+x.acessorias,0)/cl.length:null;
-        pares=`<h4>Sem par na mesma rota: a referência é uma estimativa</h4><table class="cx-c">`+
-          L(`IPOA de referência ${(ipoaRef*100).toFixed(1).replace('.',',')}% × frete R$ ${bpN2(r.frete)}`, a!=null?'R$ '+bpN2(a)+'/t':'n/d')+
-          L(`Média das acessórias de ${cl.length} linha(s) de outros clientes, mesmo produto no corredor ${escAttr(r.corredor||'n/d')}`, b!=null?'R$ '+bpN2(b)+'/t':'n/d')+
-          L('Média simples das duas','R$ '+bpN2(refM)+'/t',1)+`</table>`+
-          tab(['Cliente','Item','Rota','Acessórias R$/t'], cl.sort((x,y)=>x.acessorias-y.acessorias).slice(0,40).map(x=>[escAttr(x.cliente), x.item, x.origem+'→'+x.destino, bpN2(x.acessorias)]));
-        avisos.push('Referência estimada, sem par direto na rota. Moderado e otimista saem iguais.');
+        (r.acess_origem!=null?lado('Manobra na origem ('+r.origem+')', r.acess_origem, r.ref_ao_med, r.ref_ao_min, r.n_par_ao)+
+          lado('Manobra no destino ('+r.destino+')', r.acess_destino, r.ref_ad_med, r.ref_ad_min, r.n_par_ad)+
+          L('Outras (transbordo, direito de passagem e demais), sem comparação','R$ '+bpN2(r.acess_outras)+'/t'):L('Abertura por serviço','sem dado: sem comparação'))+
+        L('Acessórias sem direito de passagem','R$ '+bpN2(r.acess_sdp)+'/t',1)+(dp>0?L('Direito de passagem, à parte (soma ao frete no teto)','R$ '+bpN2(dp)+'/t'):'')+
+        L('Diferença, moderado (mediana) · otimista (menor par)','R$ '+bpN2(r.acess_delta_moderado)+' · R$ '+bpN2(r.acess_delta)+' por t')+
+        L(`Volume do item: ${r.vol12_kt!=null?N1(r.vol12_kt):'n/d'} kt da rota em 12 meses ÷ ${r.n_itens_rota||1} item(ns)`, r.vol_item_kt!=null?N1(r.vol_item_kt)+' kt':'n/d')+
+        L('Ganho pela conta da aba, moderado · otimista', BRL0(vAbaM)+' · '+BRL0(vAbaO),1)+
+        L('Frete + DP sobre o teto da rota inteira', r.pct_teto!=null?PCT(r.pct_teto*100)+' (frete R$ '+bpN2(r.frete)+', teto R$ '+bpN2(r.teto)+')':'n/d')+`</table>`;
+      const tabLado=(col,est,campoEst,tit)=>{ const m=new Map();
+        T.filter(x=>x.cliente!==r.cliente&&x.fam===r.fam&&x[campoEst]===est&&x[col]>=0.5).forEach(x=>{ if(!m.has(x.cliente)) m.set(x.cliente,[]); m.get(x.cliente).push(x[col]*(1-(x.aliq||0))); });
+        const rows=[...m.entries()].map(([c,v])=>[c,v.length,bpMed(v)]).sort((a,b)=>a[2]-b[2]);
+        return rows.length?`<h4>${tit} em ${est}: ${rows.length} cliente(s) par, mesma família</h4>`+tab(['Cliente','Itens','Mediana líquida de PIS/COFINS R$/t'], rows.map(x=>[escAttr(x[0]),x[1],bpN2(x[2])])):''; };
+      pares=tabLado('acess_origem', r.origem, 'origem', 'Manobra de origem')+tabLado('acess_destino', r.destino, 'destino', 'Manobra de destino');
+      if(!temPar){
+        pares+=`<h4>Sem par: estimativa pelo IPOA, só indicação</h4><table class="cx-c">`+
+          L(`24,8% × (frete R$ ${bpN2(r.frete)} + DP R$ ${bpN2(dp)})`, 'R$ '+bpN2(r.acess_estimativa)+'/t')+
+          L('Acessórias sem DP acima disso, vezes o volume do item', r.receita_estimativa!=null?BRL0(r.receita_estimativa):'n/d')+`</table>`;
+        avisos.push('Sem cliente par na mesma estação e família: o ganho é zero. A estimativa pelo IPOA não entra em nenhuma soma.');
       }
-      if(dp>0) avisos.push(`O valor cobrado inclui R$ ${bpN2(dp)}/t de direito de passagem. Pela regra de 19/nov/2026 o DP não é acessória (soma ao frete no teste do teto). Sem o DP a diferença cai para R$ ${bpN2(Math.max(0,cob-dp-(refM||0)))}/t.`);
-      const irm=T.filter(x=>x.cliente===r.cliente&&x.origem===r.origem&&x.destino===r.destino&&x.produto===r.produto&&x.item!==r.item);
-      if(irm.length) avisos.push(`A rota tem mais ${irm.length} item(ns) do mesmo cliente e produto (${irm.slice(0,6).map(x=>x.item).join(', ')}). Cada item recebe o volume inteiro da rota: marcar mais de um conta o mesmo volume mais de uma vez.`);
+      if(o.umPar) avisos.push('Só um cliente par na estação: mediana e menor são o mesmo valor. Risco alto por padrão.');
     } else if(o.tipo==='acessoria'){
       const S2=(D.acess_hub&&D.acess_hub.sim)||[];
-      const ps=S2.filter(x=>x.cliente!==r.cliente&&x.servicos===r.servicos&&x.site===r.site&&x.tarifa!=null);
+      const ps=S2.filter(x=>x.cliente!==r.cliente&&x.servicos===r.servicos&&x.site===r.site&&x.fam===r.fam&&x.tarifa!=null);
       const liq=x=>x.tarifa_liq!=null?x.tarifa_liq:x.tarifa;
       conta=`<table class="cx-c">`+L(escAttr(r.servicos)+' em '+escAttr(r.site),'R$ '+bpN2(r.tarifa)+'/t',1)+
         (r.tarifa_liq!=null&&Math.abs(r.tarifa_liq-r.tarifa)>0.005?L('líquido de PIS/COFINS','R$ '+bpN2(r.tarifa_liq)+'/t'):'')+
         L('Mediana dos pares (nos termos do cliente)','R$ '+bpN2(r.med_pares)+'/t')+L('Diferença, moderado','R$ '+bpN2(r.med_pares!=null?Math.max(0,r.tarifa-r.med_pares):null)+'/t')+
-        L('Volume por ano', r.vol_ano?N1(r.vol_ano/1000)+' kt':'n/d')+L('Ganho moderado por ano', BRL0(o.valor_ano_moderado),1)+
-        L('Menor par','R$ '+bpN2(r.min_pares)+'/t')+L('Ganho otimista por ano', BRL0(o.valor_ano_otimista),1)+`</table>`;
-      pares=`<h4>Pares: mesmo serviço na mesma estação (${ps.length} linha(s), ${new Set(ps.map(x=>x.cliente)).size} cliente(s))</h4>`+
+        L('Volume dos últimos 12 meses (rota, repartido entre os itens)', r.vol_t?N1(r.vol_t/1000)+' kt':'n/d')+L('Ganho pela conta da aba, moderado', BRL0(vAbaM),1)+
+        L('Menor par','R$ '+bpN2(r.min_pares)+'/t')+L('Ganho pela conta da aba, otimista', BRL0(vAbaO),1)+`</table>`;
+      pares=`<h4>Pares: mesmo serviço, mesma estação e família (${ps.length} linha(s), ${new Set(ps.map(x=>x.cliente)).size} cliente(s))</h4>`+
         tab(['Cliente','Rota','Produto','Tarifa R$/t','Líquida de PIS/COFINS'], ps.sort((a,b)=>liq(a)-liq(b)).slice(0,60).map(x=>[escAttr(x.cliente), (x.origem||'')+'→'+(x.destino||''), escAttr(x.produto||''), bpN2(x.tarifa), bpN2(liq(x))]));
-      if(/PASSAGEM/.test(r.servicos||'')) avisos.push('Direito de passagem não é acessória pela regra de 19/nov/2026: é relação entre ferrovias e soma ao frete no teste do teto. Trate este item como frete.');
+      if(/PASSAGEM/.test(r.servicos||'')) avisos.push('Direito de passagem não é acessória (regra de 19/nov/2026): soma ao frete no teste do teto. A comparação aparece, mas o ganho é zero.');
       if(r.elim) avisos.push('Serviço de cobrança questionável: o otimista elimina o valor inteiro.');
       if((r.n_pares_cli||0)===1) avisos.push('Só um cliente par na estação: mediana e menor par são o mesmo valor.');
-      const outrosProd=new Set(ps.map(x=>x.produto)); outrosProd.delete(r.produto);
-      if(outrosProd.size) avisos.push(`A comparação desta aba junta produtos diferentes na mesma estação (${[...outrosProd].slice(0,5).map(escAttr).join(', ')}). O Painel do Cliente compara só dentro da mesma família (farelo só com farelo).`);
     } else {
       const TF=(D.comparativo&&D.comparativo.tarifas)||[];
       const ps=TF.filter(x=>x.cliente!==r.cliente&&x.origem===r.origem&&x.destino===r.destino&&x._prod_grp_tarifa===r._prod_grp_tarifa);
@@ -2266,21 +2301,19 @@ if(D.comparativo && D.comparativo.tarifas){
         L('Menor pagador'+(r.melhor_pagador?' ('+escAttr(r.melhor_pagador)+')':''),'R$ '+bpN2(r.min_pares)+'/t')+L('Ganho otimista por ano', BRL0(o.valor_ano_otimista),1)+`</table>`;
       pares=`<h4>Pares: mesma rota e produto (${new Set(ps.map(x=>x.cliente)).size} cliente(s))</h4>`+
         tab(['Cliente','Item','Tarifa total R$/t','Líquida de PIS/COFINS','Frete','Acessórias'], ps.sort((a,b)=>liq(a)-liq(b)).map(x=>[escAttr(x.cliente), x.item||'', bpN2(x.total), bpN2(liq(x)), bpN2(x.frete), bpN2(x.acess)]));
-      if(new Set(ps.map(x=>x.cliente)).size===1) avisos.push('Só um cliente par na rota: mediana e menor pagador são o mesmo valor.');
+      if(new Set(ps.map(x=>x.cliente)).size===1) avisos.push('Só um cliente par na rota: mediana e menor pagador são o mesmo valor. Risco alto por padrão.');
     }
-    // mesma rota no Painel do Cliente (regra vigente)
+    // valor usado no Portfólio: o do Painel do Cliente quando a rota existe lá (um número, uma função)
     let pc='';
-    try{ const API=window.PC_API;
-      if(API){ const c=API.canonPC(o.cliente);
-        const fs=API.pjDo(c).filter(f=>!API.isRetro(f.fluxo)).filter(f=>{ const ro=API.fluxoRota(f); return ro&&ro.origem===o.origem&&ro.destino===o.destino; });
-        if(fs.length){ const g=API.ganhoAcessCliente(c).porFluxo||{};
-          const m=fs.reduce((a,f)=>a+((g[API.fkey(f)]||{}).mod||0),0), ot=fs.reduce((a,f)=>a+((g[API.fkey(f)]||{}).otm||0),0);
-          const dif=o.tipo==='acessoria'&&o.valor_ano_moderado>0&&Math.abs(m-o.valor_ano_moderado)>Math.max(50000,0.25*o.valor_ano_moderado);
-          pc=`<h4>Mesma rota no Painel do Cliente</h4><table class="cx-c">`+L(`Acessórias, moderado (${fs.length} fluxo(s) na rota)`, BRL0(m))+L('Acessórias, otimista', BRL0(ot))+`</table>`+
-            `<p class="muted">Regra vigente: manobra e transbordo contra pares na mesma estação e família, líquido de PIS/COFINS, sem direito de passagem, grãos e farelo mês a mês.</p>`+
-            (dif?`<p class="cx-av">Os dois modelos divergem nesta rota. Para apresentar ao cliente, use o número do Painel do Cliente.</p>`:'')+
-            `<span class="chip on" data-cxpc="${escAttr(c)}" style="cursor:pointer">Abrir no Painel do Cliente</span>`; }
-        else pc=`<h4>Mesma rota no Painel do Cliente</h4><p class="muted">Sem fluxo curado para esta rota no Painel do Cliente.</p>`; } }catch(e){ pc=''; }
+    if(o.tipo==='acessoria'){
+      const v=o.pc||(window.BP_PC?(()=>{ try{ return window.BP_PC.valor(o); }catch(e){ return null; } })():null);
+      const c=window.PC_API?window.PC_API.canonPC(o.cliente):o.cliente;
+      if(v) pc=`<h4>Valor usado no Portfólio: Painel do Cliente</h4><table class="cx-c">`+L(`Acessórias da rota e produto, moderado (${v.n} fluxo(s))`, BRL0(v.mod),1)+L('Otimista', BRL0(v.otm))+`</table>`+
+        `<p class="muted">Regra vigente: manobra e transbordo contra pares na mesma estação e família, líquido de PIS/COFINS, sem direito de passagem, volume uma vez por rota, grãos e farelo mês a mês.</p>`+
+        (o.dup?`<p class="cx-av">A mesma rota e produto já está em outra oportunidade marcada. O valor conta uma vez, nela; aqui fica zero.</p>`:'')+
+        `<span class="chip on" data-cxpc="${escAttr(c)}" style="cursor:pointer">Abrir no Painel do Cliente</span>`;
+      else pc=`<h4>Valor usado no Portfólio: conta da aba ${o.fonteAba||''}</h4><p class="muted">A rota não tem fluxo com este produto no Painel do Cliente; vale a conta acima.</p>`;
+    }
     return `<div class="cx-h"><div><div class="cx-tp">${o.tipo_label} · origem: aba ${o.fonteAba||''}</div><h3>${escAttr(o.cliente)} · ${o.origem}→${o.destino}</h3><div class="muted">${escAttr(o.produto||'')}${r.item?' · item '+r.item:''}</div></div><span class="cx-x" data-cxclose="1" title="Fechar">✕</span></div>`+
       `<h4>Conta</h4>`+conta+(avisos.length?`<div class="cx-av">${avisos.map(a=>'<div>'+a+'</div>').join('')}</div>`:'')+pares+pc;
   }
@@ -2297,7 +2330,7 @@ if(D.comparativo && D.comparativo.tarifas){
   function bpMostraRacional(r){
     const el=document.getElementById('bpRacional');
     el.style.display='';
-    el.innerHTML=`<b>${r.tipo_label} · ${r.origem}→${r.destino} (${r.produto})</b><br><br>${r.racional}<br><span class="chip on" style="margin-top:10px;cursor:pointer">Ver o cálculo</span>`;
+    el.innerHTML=`<b>${r.tipo_label} · ${r.origem}→${r.destino} (${r.produto})</b><br><br>${r.racional}${r.dup?'<br>Esta rota e produto já está em outra oportunidade marcada: o valor conta uma vez, lá.':(r.pc?'<br>Valor do Portfólio: o do Painel do Cliente para esta rota (R$ '+BRL0(r.valor_ano_moderado).replace('R$ ','')+' por ano no moderado).':'')}<br><span class="chip on" style="margin-top:10px;cursor:pointer">Ver o cálculo</span>`;
     el.style.cursor='pointer'; el.title='Clique para abrir o detalhe do cálculo';
     el.onclick=()=>bpAbreCalculo(r);
     el.scrollIntoView({behavior:'smooth',block:'nearest'});
@@ -2306,9 +2339,12 @@ if(D.comparativo && D.comparativo.tarifas){
   const MES12=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   function bpRenderMensal(rowsCli){
     const mesTotal=rowsCli.reduce((s,o)=>s+(o.valor_mes||0),0);
+    // grãos e farelo: a parcela de cada mês segue a série do Painel do Cliente (volume e preço do mês)
+    const porMes=MES12.map((_,i)=>rowsCli.reduce((s,o)=>s+(o.serieMes?o.serieMes[i]:(o.valor_mes||0)),0));
+    let acum=0;
     const principal=[...rowsCli].sort((a,b)=>(b.valor_mes||0)-(a.valor_mes||0))[0];
     const rows=MES12.map((m,i)=>({
-      _idx:i, mes:m, ganho_mes:mesTotal, acumulado:mesTotal*(i+1),
+      _idx:i, mes:m, ganho_mes:porMes[i], acumulado:(acum+=porMes[i]),
       comparativo:principal?(principal.tipo_label+' — '+principal.origem+'→'+principal.destino+' ('+principal.produto+')'):'—',
     }));
     makeTable('tBpMensal', rows, [
@@ -4994,7 +5030,7 @@ if(D.comparativo && D.comparativo.tarifas){
       // funções de ganho e volume do card do cliente (um número, uma função)
       ganhoAcessCliente, fluxoVolKtGanho, seloRota, reajDoFluxo,
       volKtRota:(cli,o,d,prod)=>{ const v=pcUlt12Sum(pcVolLookup(cli,o,d,prod)); return v!=null?v/1000:0; },
-      ganhoMensal, classeGrao,
+      ganhoMensal, classeGrao, mensalFluxo:(f,sel)=>ganhoMensalFluxo(f,sel),
       // aba Alavancas (23/nov/2026): grãos e farelo mês a mês com a MESMA janela de ganhoMensal
       volMensalRota:(cli,o,d,prod)=>volMensal12(pcVolLookup(cli,o,d,prod))||{},
       cliAtual:()=>pcCli, apresentacao:()=>pcPresent,
@@ -5554,7 +5590,7 @@ if(D.comparativo && D.comparativo.tarifas){
         // alvo de soma da abertura: IPOA 24,8% => tira do fluxo o excesso sobre a ref; peer => acess_sugerida
         let alvoTot=abertTot;
         if(modo==='ipoa'){ const dpI=dpDe(f); alvoTot=Math.max(0, abertTot-((f.acessorias-dpI)-IPOA_REF*(f.frete+dpI))); }
-        if(modo==='peer'){ const tt=ttFluxo(f); if(tt&&tt.acess_sugerida!=null) alvoTot=Math.max(0, abertTot-(f.acessorias-tt.acess_sugerida)); }
+        if(modo==='peer'){ const tt=ttFluxo(f); if(tt&&tt.acess_sugerida!=null) alvoTot=Math.max(0, abertTot-Math.max(0,(f.acessorias-dpDe(f))-tt.acess_sugerida)); }
         const fator=abertTot>0?alvoTot/abertTot:0;
         itensA.forEach(a=>{ s.teto[k].items[a.item]=Math.round(a.valor_rs_t*fator*100)/100; });
       }
@@ -6349,7 +6385,7 @@ const TETO_COL_DEFS=[
   {id:'acess_origem',h:'AO',title:'Acessória de Origem',num:1,f:v=>!v?'—':N1(v)},
   {id:'acess_destino',h:'AD',title:'Acessória de Destino',num:1,f:v=>!v?'—':N1(v)},
   {id:'acess_outras',h:'AOt',title:'Acessória Outras',num:1,f:v=>!v?'—':N1(v)},
-  {id:'acess_sugerida',h:'AS',title:'Acessória Sugerida',num:1,f:(v,r)=>v==null?'—':`<span title="${r.acess_sugerida_fonte||''}">${N1(v)}</span>`},
+  {id:'acess_sugerida',h:'AS',title:'Acessória sem DP com cada manobra no menor par da estação',num:1,f:(v,r)=>v==null?'—':`<span title="${r.acess_sugerida_fonte||''}">${N1(v)}</span>`},
   {id:'vol12_kt',h:'Volume 12m',num:1,f:v=>v==null?'—':Math.round(v).toLocaleString('pt-BR')+' kt'},
   {id:'receita_potencial',h:'Oport./ano',num:1,f:v=>v>0?`<b>${BRLa(v)}</b>`:'—'},
   {id:'receita_ano',h:'Receita ano',num:1,f:v=>v==null?'—':BRLa(v)},
@@ -6481,22 +6517,23 @@ function renderTetoOportKpis(){
   // linha a linha infla o total ~18×. Os agregados sobre TODOS os fluxos usam só 1 linha
   // por fluxo único; a soma da flagada NÃO dedupa (o usuário marcou aqueles itens específicos,
   // a intenção é explícita item a item).
-  const dedup=[...new Map(all.map(r=>[r.cliente+'|'+r.origem+'|'+r.destino+'|'+r.produto, r])).values()];
+  // 25/nov/2026: o volume já vem repartido entre os itens da rota (vol_item_kt), então a soma é direta
+  const dedup=all;
   const oportTotal=dedup.reduce((s,r)=>s+(r.receita_potencial||0),0);
-  const oportFamilia=dedup.filter(r=>r.acess_sugerida_fonte==='família (menor par)').reduce((s,r)=>s+(r.receita_potencial||0),0);
-  const oportEstim=dedup.filter(r=>r.acess_sugerida_fonte&&r.acess_sugerida_fonte!=='família (menor par)').reduce((s,r)=>s+(r.receita_potencial||0),0);
+  const oportFamilia=dedup.reduce((s,r)=>s+(r.receita_potencial_moderado||0),0);
+  const oportEstim=dedup.reduce((s,r)=>s+(r.receita_estimativa||0),0);
   const cliOport=new Set(dedup.filter(r=>r.acess_delta>0).map(r=>r.cliente)).size;
-  const cliGapFamilia=new Set(dedup.filter(r=>r.acess_sugerida_fonte==='família (menor par)'&&r.acess_delta>0).map(r=>r.cliente)).size;
+  const cliGapFamilia=new Set(dedup.filter(r=>r.acess_delta_moderado>0).map(r=>r.cliente)).size;
   const flagged=all.filter(r=>tetoAlvoSet.has(r.item));
   const oportFlagged=flagged.reduce((s,r)=>s+(r.receita_potencial||0),0);
   const cliMarcados=new Set(flagged.map(r=>r.cliente)).size;
   kpiRow('kpisTetoOport',[
-    ['Oport. total', BRLmi(oportTotal),'/ano — trazer à acessória sugerida (1 linha por fluxo)','hl'],
+    ['Oport. otimista', BRLmi(oportTotal),'/ano, cada manobra ao menor par da estação','hl'],
     ['Oport. total (flagada)', BRLmi(oportFlagged), flagged.length+' fluxo(s) marcado(s)',''],
-    ['Oport. família (menor par)', BRLmi(oportFamilia),'alta confiança — comparação direta com peers',''],
-    ['Oport. estimativa', BRLmi(oportEstim),'sem peer direto — IPOA + cluster do corredor',''],
+    ['Oport. moderada', BRLmi(oportFamilia),'/ano, cada manobra à mediana dos pares',''],
+    ['Sem par (indicação)', BRLmi(oportEstim),'acima de 24,8% de frete + DP; fora de qualquer soma',''],
     ['Clientes c/ oportunidade', cliOport,'acima da acessória sugerida',''],
-    ['Clientes c/ gap vs. família', cliGapFamilia,'pagam acima do menor par direto',''],
+    ['Clientes acima da mediana', cliGapFamilia,'pagam acima da mediana dos pares',''],
     ['Clientes marcados', cliMarcados,'flagados nesta tabela',''],
   ]);
 }
@@ -9227,6 +9264,7 @@ function rotear(h, push){
     if(d){ d.open=true; d.scrollIntoView&&d.scrollIntoView({block:'start'}); } return r; }
   return activateTab(h||'inicio', push);
 }
+try{ if(window.BP_PC) window.BP_PC.aplica(); }catch(e){ console.error('Portfólio × Painel do Cliente:', e); }
 document.querySelectorAll('.navlist button').forEach(b=>b.onclick=()=>activateTab(b.dataset.tab,true));
 if(!rotear(location.hash.slice(1), false)) activateTab('inicio', false);
 window.addEventListener('hashchange',()=>rotear(location.hash.slice(1), false));

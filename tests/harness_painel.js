@@ -116,14 +116,23 @@ const coleta = `
       const mk = (r, ktipo, tipo) => ({cliente: r.cliente, origem: r.origem || '', destino: r.destino || '', produto: r.produto, tipo, ktipo,
         tipo_label: 'x', valor_ano_moderado: 1, valor_ano_otimista: 2, _src: r});
       const T = (D.teto.fluxos || []), ruins = []; let n = 0;
-      const amostras = [...T.filter(x => x.acess_sugerida_fonte && x.acess_sugerida_fonte.startsWith('estim')).slice(0, 40).map(r => mk(r, 'teto', 'acessoria')),
-        ...T.filter(x => x.acess_sugerida_fonte && x.acess_sugerida_fonte.startsWith('fam')).slice(0, 40).map(r => mk(r, 'teto', 'acessoria')),
+      const amostras = [...T.filter(x => x.acess_sugerida_fonte && x.acess_sugerida_fonte.startsWith('sem par')).slice(0, 40).map(r => mk(r, 'teto', 'acessoria')),
+        ...T.filter(x => x.acess_sugerida_fonte && x.acess_sugerida_fonte.startsWith('pares')).slice(0, 40).map(r => mk(r, 'teto', 'acessoria')),
         ...((D.acess_hub && D.acess_hub.sim) || []).slice(0, 60).map(r => mk(r, undefined, 'acessoria')),
         ...(D.comparativo.tarifas || []).slice(0, 60).map(r => mk(r, undefined, 'preco'))];
       amostras.forEach(o => { const h = window.BP_CALC.html(o); n++;
         if (!/Conta/.test(h) || /NaN|undefined/.test(h)) ruins.push(o.cliente + ' ' + o.origem + ' ' + o.destino + ' ' + (o.ktipo || o.tipo)); });
-      const sel = T.find(x => x.item === 18421);
-      out.calc = {ok: true, n, ruins: ruins.slice(0, 5), selectaTemDP: sel ? /direito de passagem/.test(window.BP_CALC.html(mk(sel, 'teto', 'acessoria'))) : null};
+      // regras de 25/nov: volume uma vez por rota, sem par = ganho zero, DP sem ganho, valor do Painel do Cliente
+      const porRota = {}; T.forEach(x => { const k = x.cliente + '|' + x.origem + '|' + x.destino + '|' + x.produto;
+        (porRota[k] = porRota[k] || {v: x.vol12_kt || 0, s: 0}).s += x.vol_item_kt || 0; });
+      const volRuim = Object.entries(porRota).filter(([k, o]) => Math.abs(o.s - o.v) > 0.05 * Math.max(1, o.v)).length;
+      const semParComGanho = T.filter(x => x.acess_sugerida_fonte === 'sem par na estação' && ((x.receita_potencial || 0) > 0 || (x.receita_potencial_moderado || 0) > 0)).length;
+      const dpComGanho = ((D.acess_hub && D.acess_hub.sim) || []).filter(x => /PASSAGEM/.test(x.servicos) && ((x.ganho_mod_ano || 0) > 0 || (x.ganho_otm_ano || 0) > 0)).length;
+      let pcOk = 0, pcRuim = 0;
+      if (window.BP_PC) T.filter(x => (x.receita_potencial || 0) > 0).slice(0, 150).forEach(r => { const v = window.BP_PC.valor(mk(r, 'teto', 'acessoria'));
+        if (v) { (isFinite(v.mod) && isFinite(v.otm) && v.otm + 1 >= v.mod && (!v.serie || Math.abs(v.serie.reduce((a, b) => a + b, 0) - v.mod) < 1)) ? pcOk++ : pcRuim++; } });
+      out.calc = {ok: true, n, ruins: ruins.slice(0, 5), volRuim, semParComGanho, dpComGanho, pcOk, pcRuim,
+        tetoMod: T.reduce((a, x) => a + (x.receita_potencial_moderado || 0), 0), volumeAte: (D.meta.data_base || {}).volume_ate};
     } catch (e) { out.calc = {ok: false, erro: String(e.message || e)}; }
   }
   // bloco de alavancas no Painel do Cliente: monta para todo cliente sem erro

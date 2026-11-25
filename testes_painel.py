@@ -114,6 +114,14 @@ def testes_banco():
     # 9. Ficha de Fluxo 2026: fluxo do painel = valores da ficha no item e mês citados; nenhuma
     #    rota/produto da ficha em dois fluxos (exceto itens separados de propósito, "(ITEM n)")
     if "ficha_fluxo_ref" in tabs:
+        # teto da rota inteira (decisão de 25/nov/2026): nenhum item atual acima do teto por causa do
+        # teto de trecho da ficha nova, e toda linha diz de onde veio o teto
+        colsf = [r[1] for r in q("PRAGMA table_info(ficha_fluxo_ref)")]
+        if ok("teto_fonte" in colsf, "ficha_fluxo_ref sem teto_fonte (rode add_ficha_fluxo.py)"):
+            n = q("SELECT COUNT(*) FROM ficha_fluxo_ref WHERE status='atual' AND (frete+dp) > teto*1.0001")[0][0]
+            ok(n == 0, f"{n} item(ns) atuais com frete + DP acima do teto da rota inteira", aviso=True)
+            n = q("SELECT COUNT(*) FROM ficha_fluxo_ref WHERE status='atual' AND teto_fonte LIKE 'ficha (a confirmar)%'")[0][0]
+            ok(n <= 10, f"{n} item(ns) atuais com teto só da ficha nova (trecho, a confirmar)", aviso=True)
         MES = {m: i + 1 for i, m in enumerate(["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago",
                                                 "set", "out", "nov", "dez"])}
         div, rotas = [], {}
@@ -233,6 +241,11 @@ def testes_painel():
     cx = d.get("calc") or {}
     if ok(cx.get("ok"), f"caixa do cálculo não montou: {cx.get('erro')}"):
         ok(cx.get("n", 0) >= 100 and not cx.get("ruins"), f"caixa do cálculo com NaN/undefined: {cx.get('ruins')}")
+        ok(cx.get("volRuim", 1) == 0, f"aba Teto: {cx.get('volRuim')} rota(s) com volume dos itens ≠ volume da rota")
+        ok(cx.get("semParComGanho", 1) == 0, f"aba Teto: {cx.get('semParComGanho')} linha(s) sem par com ganho")
+        ok(cx.get("dpComGanho", 1) == 0, f"Hub Acessórias: {cx.get('dpComGanho')} linha(s) de DP com ganho")
+        ok(cx.get("pcOk", 0) >= 20 and cx.get("pcRuim", 1) == 0, f"Portfólio × Painel do Cliente: {cx.get('pcOk')} ok, {cx.get('pcRuim')} ruins")
+        ok(str(cx.get("volumeAte") or "") >= "2026-06", f"volume defasado: até {cx.get('volumeAte')}")
     bl = d.get("alav_cli") or {}
     ok(bl.get("ok", 0) >= 20 and not bl.get("erros"), f"bloco de alavancas do Painel do Cliente: {bl}")
     cli = d.get("clientes") or {}

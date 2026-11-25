@@ -73,12 +73,23 @@ esses arquivos.
   do Médio. No Portfólio por Cliente, oportunidade marcada na aba Teto Tarifário é ACESSÓRIA (o ganho é
   acessória cobrada menos sugerida; `ktipo:'teto'` guarda a chave antiga das classificações) e clicar na
   oportunidade abre a caixa do cálculo (`BP_CALC`, `bpCalcHtml`): conta, tabela dos pares com o mesmo
-  agrupamento do build e a leitura da mesma rota no Painel do Cliente. Pendências do modelo antigo dessas
-  abas (DP dentro da acessória, volume repetido por item, estimativa por IPOA) estão em
-  `../Melhorias_Modelo_2026-11-25.md`.
+  agrupamento do build e a leitura da mesma rota no Painel do Cliente.
 - **Ficha de Fluxo, versão de 24/nov/2026** (com açúcar e combustíveis, 3.018 itens, 94 clientes): a anterior
-  está em `07_Dados VLI/_Arquivo`. A coluna nova "Chave Teto" traz o teto da VLI por produto e rota, diferente
-  do anterior em 1.278 itens.
+  está em `07_Dados VLI/_Arquivo`. **Teto = ROTA INTEIRA** (decisão do sócio, 25/nov): a coluna "Teto Tarifario"
+  da ficha nova traz teto de trecho em parte dos itens e NÃO é usada. `add_ficha_fluxo.teto_rota_inteira` usa,
+  nesta ordem, a ficha de 19/nov arquivada, `ipoa_teto.teto_base` (congelado antes de a ficha escrever), rota
+  gêmea e, por último, a ficha nova marcada "ficha (a confirmar)". `teto_ficha` e `teto_fonte` ficam nas
+  tabelas da ficha. Teste: nenhum item atual com frete + DP acima do teto.
+- **Volume unificado** (25/nov): `VOLU` em build_painel.py = volume_hist + P&L realizado nos meses que ele não
+  tem; janela de 12 meses até o último mês realizado. Vale para Hub, aba Teto, Comparativo e data-base.
+- **Modelo das abas de origem (25/nov, lista em `../Melhorias_Modelo_2026-11-25.md`):** aba Teto compara
+  manobra de origem e de destino serviço a serviço contra os outros clientes na mesma estação e família
+  (`_ref_estacao`, `fam_par`), líquido de PIS/COFINS, sem DP; volume repartido entre os itens da rota
+  (`vol_item_kt`); sem par = ganho zero e a estimativa pelo IPOA vai em `receita_estimativa`, fora de qualquer
+  soma. Hub: pares por serviço + estação + família, DP sem ganho. Portfólio por Cliente: acessória marcada
+  vale o valor do Painel do Cliente (`BP_PC.valor`, `bpAplicaPC`, chamado no fim do script), uma vez por
+  rota e produto ("já contada"); um só par = selo e risco alto por padrão (`bpRiscoO`); projeção mensal
+  segue a série de grãos e farelo (`PC_API.mensalFluxo`).
 - `gerar_indice_videos.py` gera `09_Fotos/_indice_videos.csv` (diário de captura: vídeo →
   status/cliente/script). Rodar depois de minerar vídeos novos.
 - Regras de negócio que definem os números: `../06_Corporate_Memory/Regras_e_Decisoes_LogConsultOS.md`.

@@ -42,6 +42,17 @@ DB = BASE / "logconsult.db"
 XLSX = BASE.parent / "07_Dados VLI" / "Base_Consolidada_Ficha_de_Fluxo_Geral.xlsx"
 ANO = 2026
 MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+# Teto da ROTA INTEIRA (decisão do sócio, 25/nov/2026: "aqui vale a rota inteira"). A versão de 24/nov
+# da ficha traz na coluna "Teto Tarifario" (chave produto + origem + destino) um teto diferente em
+# 1.278 itens; em parte deles é o trecho próprio da concessionária (açúcar ZGU→IUF: R$ 92,60 contra
+# R$ 164,07 da rota), o que punha 38 itens acima do teto. O teto usado no sistema é, nesta ordem:
+#   1. o da ficha de 19/nov (arquivada), por item;
+#   2. o teto-base do item em ipoa_teto (coluna teto_base, congelada antes de a ficha escrever);
+#   3. o de uma rota gêmea (mesma origem, destino e produto) nas duas fontes acima;
+#   4. sem nenhuma delas, o valor da ficha nova, marcado "ficha (a confirmar)".
+# O valor bruto da ficha nova fica em teto_ficha, só para consulta.
+XLSX_TETO_ROTA = BASE.parent / "07_Dados VLI" / "_Arquivo" / "Base_Consolidada_Ficha_de_Fluxo_Geral_2026-11-19.xlsx"
+TETO_FICHA, TETO_FONTE = {}, {}
 FONTE = "Base_Consolidada_Ficha_de_Fluxo_Geral.xlsx (VLI, versão 24/nov/2026, com açúcar e combustíveis)"
 
 
@@ -65,6 +76,39 @@ def mes_corrente():
     return hoje.month if hoje.year == ANO else (12 if hoje.year > ANO else 1)
 
 
+def teto_rota_inteira(df):
+    """devolve (teto por item, fonte por item) para os itens de df (colunas item, origem, destino, produto, teto)."""
+    con = sqlite3.connect(DB)
+    cur = con.cursor()
+    cols = [r[1] for r in cur.execute("PRAGMA table_info(ipoa_teto)")]
+    if "teto_base" not in cols:      # banco recém-reconstruído: congela o teto da base antes da ficha
+        cur.execute("ALTER TABLE ipoa_teto ADD COLUMN teto_base REAL")
+        cur.execute("UPDATE ipoa_teto SET teto_base = teto")
+        con.commit()
+    base = pd.read_sql("SELECT item, origem, destino, UPPER(TRIM(produto)) produto, teto_base FROM ipoa_teto WHERE teto_base > 0", con)
+    con.close()
+    por_item, gemea = {}, {}
+    if XLSX_TETO_ROTA.exists():
+        v1 = pd.read_excel(XLSX_TETO_ROTA, sheet_name="Base").drop_duplicates("Item")
+        v1 = v1[v1["Teto Tarifario"] > 0]
+        for c in ("Origem", "Destino", "Produto"):
+            v1[c] = v1[c].astype(str).str.strip()
+        v1["Produto"] = v1["Produto"].str.upper()
+        por_item = {int(i): (float(t), "ficha de 19/nov") for i, t in zip(v1["Item"], v1["Teto Tarifario"])}
+        gemea = {k: (float(t), "rota gêmea (ficha de 19/nov)") for k, t in
+                 v1.groupby(["Origem", "Destino", "Produto"])["Teto Tarifario"].median().items()}
+    b1 = base.drop_duplicates("item")
+    for i, t in zip(b1["item"], b1["teto_base"]):
+        por_item.setdefault(int(i), (float(t), "base (ipoa_teto)"))
+    for k, t in base.groupby(["origem", "destino", "produto"])["teto_base"].median().items():
+        gemea.setdefault(k, (float(t), "rota gêmea (base)"))
+    teto, fonte = {}, {}
+    for r in df.drop_duplicates("item").itertuples():
+        v = por_item.get(int(r.item)) or gemea.get((r.origem, r.destino, r.produto)) or (float(r.teto), "ficha (a confirmar)")
+        teto[r.item], fonte[r.item] = v
+    return teto, fonte
+
+
 def carregar():
     df = pd.read_excel(XLSX, sheet_name="Base")
     df = df.rename(columns={"Item": "item", "Cliente": "cliente_raw", "Origem": "origem",
@@ -74,6 +118,10 @@ def carregar():
         df[c] = df[c].astype(str).str.strip()
     df["produto"] = df["produto"].str.upper()
     df["cliente"] = df["cliente_raw"].map(canon)
+    TETO_FICHA.update(zip(df["item"], df["teto"]))
+    tr, fo = teto_rota_inteira(df)
+    TETO_FONTE.update(fo)
+    df["teto"] = df["item"].map(tr)
     df["categoria"] = df["servico"].map(categoria)
     longo = df.melt(id_vars=["item", "cliente_raw", "cliente", "origem", "destino", "produto",
                              "microrregiao", "teto", "servico", "categoria", "ferrovia"],
@@ -129,6 +177,9 @@ def main():
     ref, mref = referencia(im)
     con = sqlite3.connect(DB)
     cur = con.cursor()
+    for t in (im, ref):
+        t["teto_ficha"] = t["item"].map(TETO_FICHA)
+        t["teto_fonte"] = t["item"].map(TETO_FONTE)
     longo.to_sql("ficha_fluxo_servico_mes", con, if_exists="replace", index=False)
     im.to_sql("ficha_fluxo_item_mes", con, if_exists="replace", index=False)
     ref.to_sql("ficha_fluxo_ref", con, if_exists="replace", index=False)
@@ -189,6 +240,8 @@ def main():
     print(f"  ficha 2026: {len(df)} linhas, {df['item'].nunique()} itens, {df['cliente'].nunique()} clientes; "
           f"referência {MESES[mref - 1].lower()}/{ANO} ({int((ref['status'] == 'atual').sum())} itens atuais).")
     print(f"  fluxos_servico: {antes} -> {depois} linhas ({len(itens)} itens com o mês de referência da ficha).")
+    nf = pd.Series(TETO_FONTE).value_counts().to_dict()
+    print("  teto da rota inteira, por fonte: " + "; ".join(f"{k}: {v}" for k, v in nf.items()))
     print(f"  ipoa_teto: {n_upd} itens atualizados, {n_ins} inseridos; teto_1 e ipoa recalculados pela regra frete + DP.")
 
 

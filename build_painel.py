@@ -237,23 +237,54 @@ def _pares(gr):
     gr = gr.copy()
     gr[["med_pares","min_pares","n_pares_cli"]] = pd.DataFrame(out, index=gr.index)
     return gr
-hub = hub.groupby(["servicos","site"], group_keys=False).apply(_pares)
+# 25/nov/2026: pares só dentro da mesma família de produto (farelo só com farelo, combustíveis entre
+# si) e direito de passagem fora do ganho (DP é relação entre ferrovias e soma ao frete no teto; a
+# linha continua na tabela, com a comparação, mas não gera R$).
+def _fam_par0(p):
+    f = fam_pc(p)
+    return "COMBUSTIVEIS" if f in ("GASOLINA", "OLEO", "ALCOOL", "ETANOL", "DIESEL") else ("CARVAO/COQUE" if f in ("CARVAO", "COQUE", "ANTRACITO") else f)
+hub["fam"] = hub["produto"].map(_fam_par0)
+hub = hub.groupby(["servicos","site","fam"], group_keys=False).apply(_pares)
 hub["elim"] = hub["servicos"].isin(ELIMINAVEIS)
-hub["ganho_mod"] = np.maximum(0, hub["tarifa"] - hub["med_pares"].fillna(hub["tarifa"]))
-hub["ganho_otm"] = np.where(hub["elim"], hub["tarifa"],
-                            np.maximum(0, hub["tarifa"] - hub["min_pares"].fillna(hub["tarifa"])))
+_eh_dp = hub["servicos"].str.contains("DIREITO DE PASSAGEM")
+hub["ganho_mod"] = np.where(_eh_dp, 0.0, np.maximum(0, hub["tarifa"] - hub["med_pares"].fillna(hub["tarifa"])))
+hub["ganho_otm"] = np.where(_eh_dp, 0.0, np.where(hub["elim"], hub["tarifa"],
+                            np.maximum(0, hub["tarifa"] - hub["min_pares"].fillna(hub["tarifa"]))))
 hub["alvo"] = hub["cliente"].map(is_alvo)
 # volume anual por (cliente-normalizado × O/D) — ano mais recente com realizado
 import re as _re
 def _cnorm(s):
     t = _re.sub(r"[^A-Z ]", "", str(s).upper()).split()
     return t[0] if t else ""
-vh = q("""SELECT cliente, origem, destino, ano, SUM(realizado_ktu) ktu FROM volume_hist
-          WHERE realizado_ktu > 0 GROUP BY cliente, origem, destino, ano""")
-vh["cli_n"] = vh["cliente"].map(canon)
-vh = vh.groupby(["cli_n","origem","destino","ano"], as_index=False)["ktu"].sum()
-vh = vh.sort_values("ano").groupby(["cli_n","origem","destino"]).tail(1)
-vmap = {(r.cli_n, r.origem, r.destino): (r.ktu * 1000.0, int(r.ano)) for r in vh.itertuples()}
+# VOLUME UNIFICADO (25/nov/2026, pedido do sócio: "volume real com 14 meses de defasagem; já temos o
+# volume novo na tabela com a tendência 2026"). volume_hist para em set/2025; o P&L (vli_pnl,
+# realizado=1) vai até o último mês realizado da tendência. Uma série só: volume_hist onde existe e
+# o P&L realizado nos meses que ele não tem. Antes só o Painel do Cliente fazia essa junção; o Hub, a
+# aba Teto e o Comparativo usavam a janela de out/2024 a set/2025.
+_GRADE_RE0 = re.compile(r"\s*-\s+\S+$")
+def _volume_unificado():
+    a = q("""SELECT cliente, origem, destino, mercadoria AS produto, ano, mes, SUM(realizado_ktu)*1000.0 t
+             FROM volume_hist WHERE realizado_ktu > 0 GROUP BY cliente, origem, destino, mercadoria, ano, mes""")
+    b = q("""SELECT cliente, origem, destino, mercadoria AS produto, ano, mes, SUM(vol_tu) t FROM vli_pnl
+             WHERE modal='Ferrovia' AND realizado=1
+             GROUP BY cliente, origem, destino, mercadoria, ano, mes HAVING SUM(vol_tu)>0""")
+    for d in (a, b):
+        d["cli_n"] = d["cliente"].map(canon)
+        d["produto"] = d["produto"].map(lambda m: _GRADE_RE0.sub("", str(m)).strip() or str(m).strip())
+    ks = ["cli_n", "origem", "destino", "produto", "ano", "mes"]
+    a = a.groupby(ks, as_index=False)["t"].sum()
+    b = b.groupby(ks, as_index=False)["t"].sum()
+    tem = set(map(tuple, a[ks].itertuples(index=False)))
+    b = b[[k not in tem for k in map(tuple, b[ks].itertuples(index=False))]]
+    v = pd.concat([a, b], ignore_index=True)
+    v["per"] = v["ano"] * 12 + v["mes"]
+    return v
+VOLU = _volume_unificado()
+VOLU_PERMAX = int(VOLU["per"].max())
+_vj = VOLU[VOLU["per"] > VOLU_PERMAX - 12]
+vh = _vj.groupby(["cli_n","origem","destino"], as_index=False)["t"].sum()
+_ano_ancora = (VOLU_PERMAX - 1) // 12
+vmap = {(r.cli_n, r.origem, r.destino): (r.t, _ano_ancora) for r in vh.itertuples()}
 hub["cli_n"] = hub["cliente"]  # já canônico
 hub["vol_t"]   = hub.apply(lambda r: vmap.get((r["cli_n"], r["origem"], r["destino"]), (None, None))[0], axis=1)
 hub["vol_ano"] = hub.apply(lambda r: vmap.get((r["cli_n"], r["origem"], r["destino"]), (None, None))[1], axis=1)
@@ -428,7 +459,7 @@ acess_hub = {
     "ranking": rec(acess_rank),
     "comp_sites": rec(comp_sites.round(2).head(120)),
     "comp_estacoes": rec(comp_estacoes.round(2).head(120)),
-    "sim": rec(hub[["cliente","itens","servicos","site","origem","destino","produto",
+    "sim": rec(hub[["cliente","itens","servicos","site","fam","origem","destino","produto",
                     "tarifa","tarifa_liq","med_pares","min_pares","n_pares_cli","elim","vol_t","vol_ano",
                     "ganho_otm_ano","ganho_mod_ano","alvo"]].round(2)),
 }
@@ -1356,10 +1387,7 @@ op["potencial_acess_rs_t"] = np.maximum(0.0, op["acess"] - IPOA_REF * op["frete"
 # MESMO volume 2 a 5 vezes (GERDAU|VTU|VOB sozinho respondia por R$ 160,9mi de oportunidade).
 # Fix: produto entra na chave, com o MESMO critério de match do painel (ver _prod_norm_full):
 # nome completo exato primeiro, prefixo só quando há 1 candidato único, senão None honesto.
-_v12 = q("""SELECT cliente, origem, destino, mercadoria AS produto, ano, mes, SUM(realizado_ktu) ktu
-            FROM volume_hist WHERE realizado_ktu > 0
-            GROUP BY cliente, origem, destino, mercadoria, ano, mes""")
-_v12["cliente"] = _v12["cliente"].map(canon)
+_v12 = VOLU.assign(cliente=VOLU["cli_n"], ktu=VOLU["t"] / 1000.0)[["cliente", "origem", "destino", "produto", "ano", "mes", "ktu"]].copy()
 # mesma normalização em 2 passos já usada pra montar `volmes_produto` (o índice que o painel
 # consome): tira o sufixo de GRADE ("FARELO DE SOJA - SPC" → "FARELO DE SOJA") e depois normaliza
 # sinônimo/conectores — assim os dois lados do produto caem exatamente na mesma chave.
@@ -1507,58 +1535,68 @@ teto_fluxos["_prod_grp_tarifa"] = np.where(
 # fora da família, mantém origem+destino exatos como sempre (mesmo critério de sempre p/
 # produtos não amplificados).
 teto_fluxos["_destino_grp_tarifa"] = np.where(_is_fam_vtu_tf, "(família VTU)", teto_fluxos["destino"])
-def _familia_min_peer(gr):
-    out = []
-    for i, r in gr.iterrows():
-        peers = gr.loc[gr["cliente"] != r["cliente"], "acessorias"]
-        out.append(peers.min() if len(peers) else np.nan)
-    return pd.Series(out, index=gr.index)
-_fam_min = teto_fluxos.groupby(["_prod_grp_tarifa", "origem", "_destino_grp_tarifa"], group_keys=False).apply(_familia_min_peer)
-# groupby(...).apply() concatena os resultados na ordem dos GRUPOS, não das linhas originais
-# — o índice fica certo, mas a ORDEM das linhas não bate mais com teto_fluxos. reindex()
-# realinha explicitamente antes de qualquer uso posicional (np.where etc.), senão o rótulo
-# "fonte" sai trocado em relação ao valor de acess_sugerida (bug encontrado e corrigido aqui).
-_fam_min = _fam_min.reindex(teto_fluxos.index)
-
-# frete==0 (produtos 100% acessória, ex. combustíveis na FNS) tornaria o benchmark de IPOA
-# sempre zero (IPOA_REF × 0) — sem sentido pra esse perfil de fluxo; nesses casos o
-# fallback usa só o cluster do corredor.
-_ipoa_bench = pd.Series(np.where(teto_fluxos["frete"] > 0, IPOA_REF * teto_fluxos["frete"], np.nan), index=teto_fluxos.index)
-def _cluster_corredor_avg(gr):
-    out = []
-    for i, r in gr.iterrows():
-        peers = gr.loc[gr["cliente"] != r["cliente"], "acessorias"]
-        out.append(peers.mean() if len(peers) else np.nan)
-    return pd.Series(out, index=gr.index)
-_cluster_avg = teto_fluxos.groupby(["produto", "corredor"], group_keys=False).apply(_cluster_corredor_avg)
-_cluster_avg = _cluster_avg.reindex(teto_fluxos.index)
-_fallback = pd.concat([_ipoa_bench, _cluster_avg], axis=1).mean(axis=1, skipna=True)
-
-teto_fluxos["acess_sugerida"] = _fam_min.fillna(_fallback).round(2)
-teto_fluxos["acess_sugerida_fonte"] = np.where(_fam_min.notna(), "família (menor par)", "estimativa (IPOA + cluster do corredor)")
-teto_fluxos["acess_delta"] = np.maximum(0.0, teto_fluxos["acessorias"] - teto_fluxos["acess_sugerida"])
-
-# cenário MODERADO (jul/2026, pra Base Potenciais — otimista/moderado, mesmo par de cenários
-# já usado no Comparativo/hub): mesma lógica de família, mas usando a MEDIANA dos pares em vez
-# do menor — ponderado, não o "melhor caso". Sem família, cai no mesmo fallback (já é uma
-# média/estimativa, não faz sentido ter um 2º fallback ainda mais brando).
-def _familia_mediana_peer(gr):
-    out = []
-    for i, r in gr.iterrows():
-        peers = gr.loc[gr["cliente"] != r["cliente"], "acessorias"]
-        out.append(peers.median() if len(peers) else np.nan)
-    return pd.Series(out, index=gr.index)
-_fam_med = teto_fluxos.groupby(["_prod_grp_tarifa", "origem", "_destino_grp_tarifa"], group_keys=False).apply(_familia_mediana_peer)
-_fam_med = _fam_med.reindex(teto_fluxos.index)
-teto_fluxos["acess_sugerida_moderado"] = _fam_med.fillna(_fallback).round(2)
-teto_fluxos["acess_delta_moderado"] = np.maximum(0.0, teto_fluxos["acessorias"] - teto_fluxos["acess_sugerida_moderado"])
-# receita_potencial/receita_ano usam o volume REALIZADO nos últimos 12 meses (vol12_kt,
-# em mil t → ×1000 pra tonelada), não o vmap/volume_hist anualizado — o usuário validou
-# com a SELECTA: (115,57−35,10 acess.) × 275,41 kt × 1000 ≈ R$ 22,16 mi (bateu com o esperado).
-# Fluxos sem match em vol12_kt (sem tarifas_praticadas correspondente) ficam sem esses campos.
-teto_fluxos["receita_potencial"] = teto_fluxos["acess_delta"] * teto_fluxos["vol12_kt"] * 1000.0
-teto_fluxos["receita_potencial_moderado"] = teto_fluxos["acess_delta_moderado"] * teto_fluxos["vol12_kt"] * 1000.0
-teto_fluxos["receita_ano"] = teto_fluxos["total"] * teto_fluxos["vol12_kt"] * 1000.0
+# ---- REGRAS DE 25/nov/2026 (lista de melhorias aprovada pelo sócio; ver CLAUDE.md) ----
+# Substituem a "acessória sugerida" de jul/2026 (menor acessória TOTAL da família, com DP dentro,
+# volume inteiro da rota em cada item, estimativa por IPOA entrando na soma):
+#   1. o volume da rota é repartido entre os itens do mesmo cliente, rota e produto;
+#   2. direito de passagem não é acessória: sai do cobrado e da referência;
+#   4. sem par na estação o ganho é ZERO; a estimativa pelo IPOA (24,8% de frete + DP) fica em
+#      coluna própria (receita_estimativa), fora de qualquer soma;
+#   5. comparação serviço a serviço na mesma estação: manobra de origem contra a manobra de origem
+#      dos OUTROS clientes na mesma estação de origem, idem destino (mesma régua do Painel do
+#      Cliente: mediana por cliente, valores abaixo de R$ 0,50/t ignorados, nunca o próprio cliente);
+#   6. pares comparados líquidos de PIS/COFINS e devolvidos nos termos do cliente;
+#   7. só dentro da mesma família (farelo só com farelo; combustíveis entre si).
+def fam_par(p):
+    f = fam_pc(p)
+    if f in ("GASOLINA", "OLEO", "ALCOOL", "ETANOL", "DIESEL"):
+        return "COMBUSTIVEIS"
+    if f in ("CARVAO", "COQUE", "ANTRACITO"):
+        return "CARVAO/COQUE"
+    return f
+teto_fluxos["dp"] = pd.to_numeric(teto_fluxos["dp"], errors="coerce").fillna(0.0) if "dp" in teto_fluxos.columns else 0.0
+teto_fluxos["acess_sdp"] = (teto_fluxos["acessorias"] - teto_fluxos["dp"]).clip(lower=0)
+teto_fluxos["_fam"] = teto_fluxos["produto"].map(fam_par)
+teto_fluxos["_aliq"] = [aliq_pc(c, p) for c, p in zip(teto_fluxos["cliente"], teto_fluxos["produto"])]
+def _ref_estacao(col_valor, col_estacao):
+    """mediana e menor dos OUTROS clientes (um valor por cliente = mediana dos itens dele) para o
+    mesmo serviço, na mesma estação e família; líquido de PIS/COFINS, nos termos do cliente."""
+    med = pd.Series(np.nan, index=teto_fluxos.index); mn = med.copy(); npar = pd.Series(0, index=teto_fluxos.index)
+    base = teto_fluxos[teto_fluxos[col_valor] >= 0.5]
+    for _k, g in base.groupby(["_fam", col_estacao]):
+        liq = (g[col_valor] * (1 - g["_aliq"])).groupby(g["cliente"]).median()
+        if len(liq) < 2:
+            continue
+        for cli, rows in g.groupby("cliente"):
+            o = liq.drop(cli)
+            f = 1 / (1 - rows["_aliq"])
+            med.loc[rows.index] = float(o.median()) * f
+            mn.loc[rows.index] = float(o.min()) * f
+            npar.loc[rows.index] = len(o)
+    return med, mn, npar
+_ro_med, _ro_min, _ro_n = _ref_estacao("acess_origem", "origem")
+_rd_med, _rd_min, _rd_n = _ref_estacao("acess_destino", "destino")
+teto_fluxos["ref_ao_med"], teto_fluxos["ref_ao_min"], teto_fluxos["n_par_ao"] = _ro_med.round(2), _ro_min.round(2), _ro_n
+teto_fluxos["ref_ad_med"], teto_fluxos["ref_ad_min"], teto_fluxos["n_par_ad"] = _rd_med.round(2), _rd_min.round(2), _rd_n
+def _exc(col, ref):
+    return (teto_fluxos[col] - ref).clip(lower=0).fillna(0.0)
+teto_fluxos["acess_delta"] = _exc("acess_origem", _ro_min) + _exc("acess_destino", _rd_min)
+teto_fluxos["acess_delta_moderado"] = _exc("acess_origem", _ro_med) + _exc("acess_destino", _rd_med)
+_tem_par = (_ro_n > 0) | (_rd_n > 0)
+teto_fluxos["acess_sugerida"] = np.where(_tem_par, teto_fluxos["acess_sdp"] - teto_fluxos["acess_delta"], np.nan).round(2)
+teto_fluxos["acess_sugerida_moderado"] = np.where(_tem_par, teto_fluxos["acess_sdp"] - teto_fluxos["acess_delta_moderado"], np.nan).round(2)
+teto_fluxos["acess_sugerida_fonte"] = np.where(_tem_par, "pares na estação", "sem par na estação")
+# volume: uma vez por cliente, rota e produto, repartido igual entre os itens
+teto_fluxos["n_itens_rota"] = teto_fluxos.groupby(["cliente", "origem", "destino", "produto"])["item"].transform("size")
+teto_fluxos["vol_item_kt"] = teto_fluxos["vol12_kt"] / teto_fluxos["n_itens_rota"]
+teto_fluxos["receita_potencial"] = teto_fluxos["acess_delta"] * teto_fluxos["vol_item_kt"] * 1000.0
+teto_fluxos["receita_potencial_moderado"] = teto_fluxos["acess_delta_moderado"] * teto_fluxos["vol_item_kt"] * 1000.0
+# estimativa pelo IPOA, só indicação (nunca entra em soma): acessória sem DP acima de 24,8% de frete + DP
+teto_fluxos["acess_estimativa"] = (IPOA_REF * (teto_fluxos["frete"] + teto_fluxos["dp"])).round(2)
+teto_fluxos["receita_estimativa"] = np.where(
+    _tem_par | ~(teto_fluxos["frete"] > 0), np.nan,
+    (teto_fluxos["acess_sdp"] - teto_fluxos["acess_estimativa"]).clip(lower=0) * teto_fluxos["vol_item_kt"] * 1000.0)
+teto_fluxos["receita_ano"] = teto_fluxos["total"] * teto_fluxos["vol_item_kt"] * 1000.0
 teto_fluxos["pct_potencial_receita"] = np.where(teto_fluxos["receita_ano"]>0,
     teto_fluxos["receita_potencial"]/teto_fluxos["receita_ano"]*100, np.nan)
 # pontos do gráfico (eixos escolhíveis): só fluxos com volume nos últimos 12m, bolha = receita do FLUXO
@@ -1925,7 +1963,7 @@ REAJ_RESUMO = {"vigencias": int(len(_reaj)), "itens": int(_reaj["item_ferroviari
 def _ym(v):
     v = int(v) if v is not None and not pd.isna(v) else None
     return f"{v // 100}-{v % 100:02d}" if v else None
-_db_vol = q("SELECT MAX(ano*100+mes) m FROM volume_hist WHERE realizado_ktu>0")["m"].iloc[0]
+_db_vol = ((VOLU_PERMAX - 1) // 12) * 100 + ((VOLU_PERMAX - 1) % 12 + 1)
 _db_pnl_real = q("SELECT MAX(ano*100+mes) m FROM vli_pnl WHERE realizado=1")["m"].iloc[0]
 _pan_tend = q("SELECT panorama, MAX(CASE WHEN realizado=1 THEN mes END) m FROM vli_pnl WHERE panorama LIKE '%Tendência%' GROUP BY panorama")
 _hoje_iso = datetime.date.today().isoformat()
@@ -2328,10 +2366,12 @@ data = {
   "teto": {"fluxos": rec(teto_fluxos[["item","cliente","origem","destino","produto","corredor",
                  "frete","dp","teto","pct_teto","acessorias","acess_sugerida","acess_sugerida_fonte","acess_delta",
                  "acess_sugerida_moderado","acess_delta_moderado",
-                 "acess_origem","acess_destino","acess_outras",
+                 "acess_origem","acess_destino","acess_outras","acess_sdp",
+                 "ref_ao_med","ref_ao_min","n_par_ao","ref_ad_med","ref_ad_min","n_par_ad",
+                 "n_itens_rota","vol_item_kt","acess_estimativa","receita_estimativa",
                  "receita_potencial","receita_potencial_moderado","receita_ano","pct_potencial_receita",
                  "ipoa","vigencia","ano_realizado","mes_realizado","vol12_kt","score","alvo"]]
-                 .assign(fam_vtu=lambda d: ((d["origem"] == "VTU") & d["produto"].isin(_FAMILIA_CARVAO_COQUE_TARIFA)).astype(int)).round(2)),
+                 .assign(fam=lambda d: d["produto"].map(fam_par), aliq=lambda d: [aliq_pc(c, p) for c, p in zip(d["cliente"], d["produto"])]).round(4)),
            "cards": teto_cards, "scatter": scatter,
            "insights": teto_insights, "ipoa_ref": IPOA_REF},
   "ipoa": ipoa_data,
