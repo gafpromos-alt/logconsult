@@ -244,6 +244,9 @@ def testes_painel():
         ok(tb.get("cardsPrio") == 3, f"Início: {tb.get('cardsPrio')} cartão(ões) de prioridade (esperado 3)")
         ss = ini.get("segueSim") or {}
         ok(ss.get("igual"), f"Início não acompanha a simulação do Painel do Cliente: {ss}")
+    aa = d.get("abaAlav") or {}
+    ok(aa.get("ok") and aa.get("escondidaNaTeto") and aa.get("visivelNaAba") and aa.get("temTabela"),
+       f"alavancas do cliente fora da aba própria: {aa}")
     im = d.get("isoMicro") or {}
     if ok(im.get("ok"), f"isonomia por microrregião não rodou: {im.get('erro')}"):
         ok(im.get("nMicro", 0) >= 10 and not im.get("ruins"), f"isonomia por microrregião: {im}")

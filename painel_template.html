@@ -633,13 +633,14 @@ details.ini-more .panel{margin-top:12px}
             <span class="chip" data-pctab="retro">Retroativo</span>
             <span class="chip" data-pctab="tetoreg" id="pcChipTetoReg" style="display:none">Teto Regulatório</span>
             <span class="chip" data-pctab="porto" id="pcChipPorto" style="display:none">Porto</span>
+            <span class="chip" data-pctab="alav" id="pcChipAlav" style="display:none" title="Alavancas regulatórias deste cliente (uso interno, some no modo apresentação)">Alavancas</span>
           </span>
           <span class="chip" id="pcPresentToggle" title="Oculta selos internos, ganhos de consultoria e anonimiza nomes de concorrentes — pra projetar na reunião com o cliente">☐ Modo apresentação</span>
           <span class="chip" id="pcExportRel" title="Baixa um HTML só com os números deste cliente e referências de mercado agregadas — sem nomes de outros clientes, sem P&amp;L VLI, sem contatos. Pode ser enviado ao cliente.">⬇ Relatório do cliente</span>
         </div>
       </div>
       <div id="pcGanhosPotenciais"></div>
-      <div id="pcAlavancas"></div>
+      <div id="pcAlavancas" style="display:none"></div>
       <div id="pcTabTeto"></div>
       <div id="pcTabIso" style="display:none"></div>
       <div id="pcTabRetro" style="display:none"></div>
@@ -3275,6 +3276,11 @@ if(D.comparativo && D.comparativo.tarifas){
     const temTetoReg=!!TETO_REG[pcCli];
     const chipTR=document.getElementById('pcChipTetoReg'); if(chipTR) chipTR.style.display=temTetoReg?'':'none';
     if(pcTab==='tetoreg' && !temTetoReg) pcTab='teto';   // trocou pra cliente sem a aba → volta pro teto
+    // aba Alavancas (25/nov/2026, pedido do sócio): o bloco saiu do topo de todas as abas e virou aba própria;
+    // material interno (P&L e ficha da VLI), some no modo apresentação
+    const temAlav=!pcPresent&&!!(window.ALAV_API&&window.ALAV_API.doCliente(pcCli).length);
+    const chipAl=document.getElementById('pcChipAlav'); if(chipAl) chipAl.style.display=temAlav?'':'none';
+    if(pcTab==='alav' && !temAlav) pcTab='teto';
     const temPorto=portoDo(pcCli).length>0;
     const chipPo=document.getElementById('pcChipPorto'); if(chipPo) chipPo.style.display=temPorto?'':'none';
     if(pcTab==='porto' && !temPorto) pcTab='teto';
@@ -3283,6 +3289,7 @@ if(D.comparativo && D.comparativo.tarifas){
     document.getElementById('pcTabRetro').style.display=pcTab==='retro'?'':'none';
     document.getElementById('pcTabTetoReg').style.display=pcTab==='tetoreg'?'':'none';
     document.getElementById('pcTabPorto').style.display=pcTab==='porto'?'':'none';
+    const elAl=document.getElementById('pcAlavancas'); if(elAl) elAl.style.display=pcTab==='alav'?'':'none';
   }
 
   /* ================= ABA 1 — TETO TARIFÁRIO (análise detalhada + deltas simuláveis) ================= */
@@ -5562,7 +5569,7 @@ if(D.comparativo && D.comparativo.tarifas){
       return;
     }
     pcRenderGanhos();
-    if(pcTab==='teto') pcRenderTeto(); else if(pcTab==='iso') pcRenderIso(); else if(pcTab==='tetoreg') pcRenderTetoReg(); else if(pcTab==='porto') pcRenderPorto(); else pcRenderRetro();
+    if(pcTab==='teto') pcRenderTeto(); else if(pcTab==='iso') pcRenderIso(); else if(pcTab==='tetoreg') pcRenderTetoReg(); else if(pcTab==='porto') pcRenderPorto(); else if(pcTab==='alav'){ if(window.pcRenderAlav) window.pcRenderAlav(pcCli); } else pcRenderRetro();
   }
   { const tg=document.getElementById('pcPresentToggle');
     if(tg) tg.onclick=function(){ pcPresent=!pcPresent; document.body.classList.toggle('pc-present',pcPresent);
@@ -8986,16 +8993,19 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
       const it=window.ALAV_API.doCliente(cli).map(x=>({...x, r:res.find(y=>y.id===x.id)}));
       if(!it.length){ el.innerHTML=''; return; }
       it.sort((a,b)=>(ehRS(b.r)&&b.r.medida==='rs_ano'?(b.o.v||0):-1)-(ehRS(a.r)&&a.r.medida==='rs_ano'?(a.o.v||0):-1)||a.id-b.id);
-      el.innerHTML=`<div class="subcard"><div class="sec-h" style="border-top:0;padding-top:0">Alavancas regulatórias deste cliente
+      el.innerHTML=`<div class="panel"><div class="sec-h" style="border-top:0;padding-top:0">Alavancas regulatórias deste cliente
         <span class="h-hint">${it.length} de ${res.length} · valores não se somam · uso interno (some no modo apresentação)</span>
         <a href="#alavancas" class="lk" data-alcli="1" style="margin-left:8px">abrir na aba Alavancas →</a></div>
-        <div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th class="num">#</th><th>Alavanca</th><th class="num">Valor</th><th>Detalhe</th></tr></thead><tbody>${
+        <div class="tbl-wrap"><table><thead><tr><th class="num">#</th><th>Alavanca</th><th class="num">Valor</th><th>Detalhe</th></tr></thead><tbody>${
         it.map(x=>`<tr data-alid="${x.id}" style="cursor:pointer"><td class="num mono">${x.id}</td><td><b>${escAttr(x.titulo)}</b></td><td class="num">${fmtV(x.r,x.o.v,x.o.n)}</td><td class="muted" style="white-space:normal;font-size:11px">${escAttr(x.o.det||'')}</td></tr>`).join('')
         }</tbody></table></div></div>`;
       el.onclick=e=>{ const a=e.target.closest('[data-alcli]'); if(a){ e.preventDefault(); abrir(cli); return; }
         const tr=e.target.closest('tr[data-alid]'); if(tr) abrir(cli,+tr.dataset.alid); };
     };
-    if(API&&API.cliAtual) window.pcRenderAlav(API.cliAtual());
+    if(API&&API.cliAtual){ window.pcRenderAlav(API.cliAtual());
+      // este bloco roda depois do primeiro desenho do Painel do Cliente: acende o botão da aba aqui
+      const ch=document.getElementById('pcChipAlav');
+      if(ch) ch.style.display=(!API.apresentacao()&&window.ALAV_API.doCliente(API.cliAtual()).length)?'':'none'; }
   }catch(e){ console.error('Alavancas regulatórias:', e); }
 })();
 

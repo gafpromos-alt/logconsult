@@ -48,7 +48,8 @@ esses arquivos.
   orçamento, contagens). O R$/ano das linhas é calculado no painel (aba Alavancas Regulatórias) com
   `PC_API.volKtRota`/`volMensalRota`; as alavancas 6, 11, 12 e 14 leem `NOVAS.ficha`, a 26 lê o porto e
   a 29 lê `NOVAS.venc` (um número, uma função). Faixa da manobra (8): menor faixa paga por 2+ clientes
-  da mesma classe e ferrovia, farelo só com farelo. Bloco `#pcAlavancas` no Painel do Cliente some no
+  da mesma classe e ferrovia, farelo só com farelo. Bloco `#pcAlavancas` no Painel do Cliente é a aba própria "Alavancas" (25/nov, saiu do topo das
+  demais abas; botão `#pcChipAlav`) e some no
   modo apresentação e não entra no relatório do cliente (usa P&L e ficha, internos da VLI). Texto sem
   travessão (teste). Normas: nunca Res. 3.695/2011 nem art. 35 da Lei 10.233.
 - **Varredura de 24/nov/2026** (regras em `../06_Corporate_Memory/Regras_e_Decisoes_LogConsultOS.md` §7):

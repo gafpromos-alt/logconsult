@@ -139,6 +139,16 @@ const coleta = `
           if (!isFinite(pr.mod) || !isFinite(pr.otm) || pr.otm + 1 < pr.mod) ruins.push(c + ' ' + pr.label); } }); });
     out.isoMicro = {ok: true, nMicro, nRotasGrao, ruins: ruins.slice(0, 5)};
   } catch (e) { out.isoMicro = {ok: false, erro: String(e.message || e)}; }
+  // alavancas do cliente em aba própria (25/nov/2026): não aparecem na aba Teto, aparecem na aba Alavancas
+  out.abaAlav = {ok: false};
+  try {
+    API.abrirPainel('SELECTA', 'teto');
+    const naTeto = document.getElementById('pcAlavancas').style.display;
+    API.abrirPainel('SELECTA', 'alav');
+    const naAba = document.getElementById('pcAlavancas').style.display, h = document.getElementById('pcAlavancas').innerHTML;
+    out.abaAlav = {ok: true, escondidaNaTeto: naTeto === 'none', visivelNaAba: naAba === '', temTabela: /data-alid=/.test(h)};
+    API.abrirPainel('SELECTA', 'teto');
+  } catch (e) { out.abaAlav = {ok: false, erro: String(e.message || e)}; }
   // aba Porto do Painel do Cliente (25/nov/2026): Mosaic no TIPLAM com os três produtos e as referências
   out.porto = {ok: false};
   try {
