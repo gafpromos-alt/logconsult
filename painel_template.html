@@ -380,6 +380,58 @@ table th{font-weight:500;text-transform:none;letter-spacing:0;color:var(--mut2)}
 .hc .l span:first-child{color:var(--mut)}
 .hc p{margin:6px 0 0;color:var(--mut)}
 @media (max-width:1100px){.ini-hero,.cp-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.gsearch input{width:180px}}
+/* faixas laterais recolhidas, abrem ao passar o mouse por cima do conteúdo (25/nov/2026) */
+.rail-hint{display:none}
+@media (min-width:1101px){
+  .app{padding-left:64px}
+  .nav-rail{position:fixed;left:0;top:0;bottom:0;height:100vh;width:64px;z-index:60;overflow:hidden;padding:20px 13px;
+    transition:width .24s cubic-bezier(.2,.8,.2,1),box-shadow .24s}
+  .nav-rail:hover{width:256px;box-shadow:var(--pop);overflow-y:auto}
+  .nav-rail .bwords,.nav-rail .navlist,.nav-rail .sync{opacity:0;pointer-events:none;transition:opacity .12s}
+  .nav-rail:hover .bwords,.nav-rail:hover .navlist,.nav-rail:hover .sync{opacity:1;pointer-events:auto;transition:opacity .18s .08s}
+  .nav-rail .navlist,.nav-rail .sync{width:218px}
+  .nav-rail .rail-hint{display:flex;position:absolute;left:0;width:64px;top:84px;justify-content:center;color:var(--mut2);font-size:18px;transition:opacity .12s}
+  .nav-rail:hover .rail-hint{opacity:0}
+  .contentrow{padding-right:40px}
+  .rrail{position:fixed;right:0;top:0;bottom:0;height:100vh;max-height:none;width:40px;z-index:60;overflow:hidden;padding:20px 0;
+    transition:width .24s cubic-bezier(.2,.8,.2,1),box-shadow .24s,padding .24s}
+  .rrail:hover{width:340px;padding:20px;box-shadow:var(--pop);overflow-y:auto}
+  .rrail>*{min-width:300px;opacity:0;transition:opacity .12s}
+  .rrail:hover>*{opacity:1;transition:opacity .18s .08s}
+  .rrail .rail-hint{display:block;position:absolute;top:22px;left:0;width:40px;min-width:0;opacity:1;writing-mode:vertical-rl;
+    font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);text-align:center;line-height:40px}
+  .rrail:hover .rail-hint{opacity:0}
+}
+/* alvo e prioridade no Início */
+.ini-tbl td.ck,.ini-tbl th.ck{width:34px;padding-right:0;text-align:center}
+.ini-tbl input[type=checkbox]{width:16px;height:16px;accent-color:var(--r-baixo);cursor:pointer;vertical-align:middle}
+.prio-sel{appearance:none;-webkit-appearance:none;border:0;border-radius:8px;background:var(--seg);font:inherit;font-size:12.5px;font-weight:600;
+  padding:4px 10px;min-width:48px;text-align:center;cursor:pointer;color:var(--mut)}
+.prio-sel.p1{background:#1F7A36;color:#fff}.prio-sel.p2{background:#E8F5EC;color:#1F7A36}.prio-sel.p3{background:var(--seg);color:var(--ink)}
+.ini-aviso{font-size:12.5px;color:var(--mut);margin-left:6px}.ini-aviso a{color:#1F7A36;cursor:pointer;font-weight:500}
+details.ini-more{margin-top:16px}
+details.ini-more>summary{cursor:pointer;list-style:none;font-size:15px;font-weight:600;padding:14px 18px;background:#fff;border:1px solid var(--hairline);border-radius:16px}
+details.ini-more>summary::-webkit-details-marker{display:none}
+details.ini-more>summary::after{content:'›';float:right;color:var(--mut2);transition:transform .2s}
+details.ini-more[open]>summary::after{transform:rotate(90deg)}
+details.ini-more .panel{margin-top:12px}
+.alv-row select.prio-sel{margin-left:auto}
+/* caixa do cálculo da oportunidade */
+.cx-ov{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.28);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;padding:6vh 16px;overflow:auto}
+.cx-ov.show{display:flex}
+.cx-box{background:#fff;border-radius:18px;box-shadow:var(--pop);width:min(860px,100%);padding:22px 24px 24px;font-size:14px;line-height:1.5}
+.cx-h{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.cx-h h3{margin:2px 0 2px;font-size:19px;font-weight:600;letter-spacing:-.018em}
+.cx-tp{font-size:12px;font-weight:600;color:var(--r-medio)}
+.cx-x{cursor:pointer;color:var(--mut2);font-size:16px;padding:4px 8px;border-radius:8px}.cx-x:hover{background:var(--seg)}
+.cx-box h4{font-size:13px;font-weight:600;color:var(--mut);margin:18px 0 8px}
+.cx-c{width:100%;border-collapse:collapse}.cx-c td{padding:6px 0;border-bottom:1px solid var(--line-el)}
+.cx-c td.n,.cx-t td.n,.cx-t th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cx-c tr.tot td{font-weight:600}
+.cx-t{width:100%;border-collapse:collapse;font-size:13px}.cx-t th{text-align:left;font-weight:500;color:var(--mut2);padding:6px 8px;position:sticky;top:0;background:#fff}
+.cx-t td{padding:6px 8px;border-top:1px solid var(--line-el)}
+.cx-av{margin-top:12px;padding:10px 12px;border-radius:12px;background:var(--r-medio-bg);color:#7A3A00;font-size:13px}
+.cx-av div+div{margin-top:6px}
 </style>
 </head>
 <body>
@@ -390,6 +442,7 @@ table th{font-weight:500;text-transform:none;letter-spacing:0;color:var(--mut2)}
       <span class="logo">L</span>
       <span class="bwords"><span class="nm">LogConsult OS</span><span class="sub">Intelligence Engine</span></span>
     </div>
+    <span class="rail-hint" aria-hidden="true">☰</span>
     <div class="navlist">
       <button data-tab="inicio" data-grupo="Início" class="active">Ganhos por cliente</button>
       <button data-tab="clientepg" data-grupo="Clientes" style="display:none">Cliente</button>
@@ -398,7 +451,6 @@ table th{font-weight:500;text-transform:none;letter-spacing:0;color:var(--mut2)}
       <button data-tab="contatos" data-grupo="Clientes">Contatos</button>
       <button data-tab="contratos" data-grupo="Clientes">Contratos</button>
       <button data-tab="captura" data-grupo="Clientes">Pendências de Captura</button>
-      <button data-tab="alvos" data-grupo="Clientes">Clientes-alvo</button>
       <div class="navgroup">Análises</div>
       <button data-tab="alavancas" data-grupo="Análises">Alavancas Regulatórias</button>
       <button data-tab="acessorias" data-grupo="Análises">Acessórias e Teto</button>
@@ -439,13 +491,36 @@ table th{font-weight:500;text-transform:none;letter-spacing:0;color:var(--mut2)}
     <div class="ini-hero" id="iniHero"></div>
     <div class="panel" style="padding:8px 4px 4px">
       <div class="ini-ctl" style="padding:10px 14px 0">
-        <span class="seg" id="iniOrd"><span class="chip on" data-iord="medio">Médio risco</span><span class="chip" data-iord="baixo">Baixo risco</span><span class="chip" data-iord="alto">Alto risco</span><span class="chip" data-iord="retro">Retroativo</span></span>
-        <span class="seg" id="iniFil"><span class="chip on" data-ifil="todos">Todos</span><span class="chip" data-ifil="alvo">Só alvos</span><span class="chip" data-ifil="venc">Contrato vence em 12 meses</span></span>
+        <span class="seg" id="iniOrd"><span class="chip on" data-iord="medio">Médio risco</span><span class="chip" data-iord="retro">Retroativo</span><span class="chip" data-iord="baixo">Baixo risco</span><span class="chip" data-iord="alto">Alto risco</span></span>
+        <span class="seg" id="iniFil"><span class="chip on" data-ifil="todos">Todos</span><span class="chip" data-ifil="alvo">Alvos</span><span class="chip" data-ifil="P1">P1</span><span class="chip" data-ifil="P2">P2</span><span class="chip" data-ifil="P3">P3</span><span class="chip" data-ifil="semprio">Sem prioridade</span><span class="chip" data-ifil="venc">Vence em 12 meses</span></span>
+        <span class="ini-aviso" id="iniAviso" hidden>Marcação salva. <a id="iniRecarregar">Recarregar</a> para aplicar nas outras abas.</span>
         <span class="muted" id="iniCount" style="margin-left:auto;font-size:13px"></span>
       </div>
       <div class="tbl-wrap" style="border:0"><table class="ini-tbl" id="iniTbl"></table></div>
     </div>
     <div class="note fine" style="margin-top:8px;color:var(--mut2)">Passe o mouse sobre um cenário ou uma linha para ver a composição. Clique no cliente para abrir a página dele. Os valores não se somam entre cenários: cada um é uma leitura do mesmo dinheiro com risco diferente.</div>
+    <details class="ini-more" id="iniAlvos"><summary>Clientes-alvo, prioridades e backup das classificações</summary>
+    <div class="kpis" id="kpisAlvos" style="margin-bottom:12px"></div>
+    <div class="panel">
+      <h2>Todos os clientes da base</h2>
+      <div class="desc">Inclui os clientes sem ganho mapeado, que não aparecem na tabela acima. Marque o alvo e a prioridade (P1, P2, P3); vale para todas as abas do painel e fica salvo neste navegador.</div>
+      <div class="controls">
+        <input type="search" id="alvSearch" placeholder="Buscar cliente…" style="min-width:240px">
+        <span class="chip" id="alvReset">↺ Restaurar padrão</span>
+        <span class="muted" id="alvCount"></span>
+      </div>
+      <div class="tbl-wrap" style="max-height:600px"><div id="alvList"></div></div>
+    </div>
+    <div class="panel">
+      <h2>Backup das suas classificações</h2>
+      <div class="desc">Clientes-alvo, simulações por fluxo, volumes digitados, probabilidade, complexidade, taxa de êxito e flegs ficam só neste navegador (chaves <code>lc_*</code>). Limpar o cache ou trocar de computador apaga tudo. Exporte um arquivo e importe em outra máquina ou depois de reinstalar.</div>
+      <div class="controls">
+        <span class="chip" id="lcExport">⬇ Exportar classificações (.json)</span>
+        <label class="chip" style="cursor:pointer">⬆ Importar arquivo<input type="file" id="lcImport" accept="application/json,.json" style="display:none"></label>
+        <span class="muted" id="lcBackupInfo"></span>
+      </div>
+    </div>
+    </details>
   </section>
 
   <!-- ============ PÁGINA DO CLIENTE (aberta pelo Início ou pela busca) ============ -->
@@ -489,7 +564,6 @@ table th{font-weight:500;text-transform:none;letter-spacing:0;color:var(--mut2)}
             <span class="chip on" data-bptf="">Todos os tipos</span>
             <span class="chip" data-bptf="preco">Diferencial de preço</span>
             <span class="chip" data-bptf="acessoria">Diferencial de acessórias</span>
-            <span class="chip" data-bptf="teto">Diferencial de teto</span>
           </div>
           <div class="tbl-wrap" style="max-height:360px"><table id="tBasePotDetalhe"></table></div>
           <div class="note" id="bpRacional" style="display:none;margin-top:14px;font-size:13.5px;line-height:1.7"></div>
@@ -561,29 +635,6 @@ table th{font-weight:500;text-transform:none;letter-spacing:0;color:var(--mut2)}
     </div>
   </section>
 
-  <!-- ============ CLIENTES-ALVO LOGCONSULT (gerenciador, fora de Potenciais Clientes) ============ -->
-  <section id="alvos">
-    <div class="kpis" id="kpisAlvos" style="margin-bottom:12px"></div>
-    <div class="panel">
-      <h2>Clientes-alvo LogConsult</h2>
-      <div class="desc">Marque quem é alvo LogConsult — vale para todas as abas do painel (pílula "alvo", filtros "Só alvos", insights). Fica salvo neste navegador; a página recarrega ao alterar.</div>
-      <div class="controls">
-        <input type="search" id="alvSearch" placeholder="Buscar cliente…" style="min-width:240px">
-        <span class="chip" id="alvReset">↺ Restaurar padrão</span>
-        <span class="muted" id="alvCount"></span>
-      </div>
-      <div class="tbl-wrap" style="max-height:600px"><div id="alvList"></div></div>
-    </div>
-    <div class="panel">
-      <h2>Backup das suas classificações</h2>
-      <div class="desc">Clientes-alvo, simulações por fluxo, volumes digitados, probabilidade, complexidade, taxa de êxito e flegs ficam só neste navegador (chaves <code>lc_*</code>). Limpar o cache ou trocar de computador apaga tudo. Exporte um arquivo e importe em outra máquina ou depois de reinstalar.</div>
-      <div class="controls">
-        <span class="chip" id="lcExport">⬇ Exportar classificações (.json)</span>
-        <label class="chip" style="cursor:pointer">⬆ Importar arquivo<input type="file" id="lcImport" accept="application/json,.json" style="display:none"></label>
-        <span class="muted" id="lcBackupInfo"></span>
-      </div>
-    </div>
-  </section>
 
 
   <!-- ============ VLI / MARGEM ============ -->
@@ -1577,6 +1628,7 @@ table th{font-weight:500;text-transform:none;letter-spacing:0;color:var(--mut2)}
         </div><!-- /.wrap -->
       </main>
       <aside class="rrail" id="rrail">
+        <span class="rail-hint" aria-hidden="true">Insights</span>
         <div class="rl-title" id="railTitle">Insights</div>
         <div id="railBody"></div>
       </aside>
@@ -1595,6 +1647,17 @@ try{
   alvoSet=new Set(saved?JSON.parse(saved):(D.meta.alvos_default||[]));
 }catch(e){ alvoSet=new Set(D.meta.alvos_default||[]); }
 function alvoSave(){ try{localStorage.setItem(ALV_KEY, JSON.stringify([...alvoSet]));}catch(e){} }
+/* prioridade do alvo (P1, P2, P3 ou nenhuma), 25/nov/2026. Escolher prioridade marca o alvo;
+   desmarcar o alvo limpa a prioridade. Mesma família de chaves lc_* (entra no backup). */
+const PRIO_KEY='lc_prioridade_v1';
+let prioMap={};
+try{ prioMap=JSON.parse(localStorage.getItem(PRIO_KEY)||'{}')||{}; }catch(e){ prioMap={}; }
+function prioSave(){ try{localStorage.setItem(PRIO_KEY, JSON.stringify(prioMap));}catch(e){} }
+function setAlvo(c,on){ if(on) alvoSet.add(c); else { alvoSet.delete(c); delete prioMap[c]; } alvoSave(); prioSave(); }
+function setPrio(c,v){ if(v){ prioMap[c]=v; alvoSet.add(c); } else delete prioMap[c]; alvoSave(); prioSave(); }
+function prioSelHtml(c){ const v=prioMap[c]||'';
+  return `<select class="prio-sel ${v.toLowerCase()}" data-prio="${encodeURIComponent(c)}" title="Prioridade do alvo">`+
+    ['','P1','P2','P3'].map(o=>`<option value="${o}"${o===v?' selected':''}>${o||'·'}</option>`).join('')+'</select>'; }
 // aplica o override em qualquer objeto {cliente|conta, alvo} na árvore de dados — genérico, cobre toda aba
 (function applyAlvoOverrides(node){
   if(Array.isArray(node)){ node.forEach(applyAlvoOverrides); return; }
@@ -1918,7 +1981,7 @@ if(D.comparativo && D.comparativo.tarifas){
   const RISK_NAME={alto:'Alto',medio:'Médio',baixo:'Baixo'};
   const RISK_COL={alto:'var(--bad)',medio:'var(--warn)',baixo:'var(--good)'};
   const TIPO_COL={preco:'var(--info)',acessoria:'var(--warn)',teto:'var(--bad)'};
-  const bpKey=o=>[o.cliente,o.origem,o.destino,o.produto,o.tipo].join('|');
+  const bpKey=o=>[o.cliente,o.origem,o.destino,o.produto,o.ktipo||o.tipo].join('|');
   const BP_PROB_KEY='lc_bp_prob_v1', BP_CPLX_KEY='lc_bp_complex_v1';
   let bpProbMap, bpCplxMap;
   try{ bpProbMap=JSON.parse(localStorage.getItem(BP_PROB_KEY)||'{}'); }catch(e){ bpProbMap={}; }
@@ -1943,7 +2006,7 @@ if(D.comparativo && D.comparativo.tarifas){
     const mod=r.oport_ano||0, otm=Math.max(r.oport_min_ano||0, mod);
     return {cliente:r.cliente, origem:r.origem, destino:r.destino, produto:r.produto, corredor:r.corredor,
       tipo:'preco', tipo_label:'Diferencial de preço',
-      valor_mes:mod/12, valor_ano_otimista:otm, valor_ano_moderado:mod, vigencia:r.vigencia, alvo:!!r.alvo,
+      valor_mes:mod/12, valor_ano_otimista:otm, valor_ano_moderado:mod, vigencia:r.vigencia, alvo:!!r.alvo, _src:r, fonteAba:'Comparativo de Tarifas',
       racional:`Tarifa atual R$ ${N1(r.total)}/t vs. mediana dos pares R$ ${r.med_pares!=null?N1(r.med_pares):'—'}/t`
         +(r.min_pares!=null?` (menor pagador R$ ${N1(r.min_pares)}/t)`:'')
         +`. Gap de ${r.gap_pct!=null?r.gap_pct.toFixed(1):'—'}% sobre a mediana — marcado como alvo na aba Comparativo de Tarifas.`};
@@ -1952,7 +2015,7 @@ if(D.comparativo && D.comparativo.tarifas){
     const mod=r.ganho_mod_ano||0, otm=Math.max(r.ganho_otm_ano||0, mod);
     return {cliente:r.cliente, origem:r.origem||'—', destino:r.destino||'—', produto:r.produto, corredor:null,
       tipo:'acessoria', tipo_label:'Diferencial de acessórias',
-      valor_mes:mod/12, valor_ano_otimista:otm, valor_ano_moderado:mod, vigencia:null, alvo:!!r.alvo,
+      valor_mes:mod/12, valor_ano_otimista:otm, valor_ano_moderado:mod, vigencia:null, alvo:!!r.alvo, _src:r, fonteAba:'Acessórias',
       racional:`${r.servicos} em ${r.site}: paga R$ ${N1(r.tarifa)}/t vs. mediana dos pares R$ ${r.med_pares!=null?N1(r.med_pares):'—'}/t`
         +(r.min_pares!=null?` (menor pagador R$ ${N1(r.min_pares)}/t)`:'')
         +'. Marcado como alvo na aba Acessórias.'};
@@ -1960,10 +2023,14 @@ if(D.comparativo && D.comparativo.tarifas){
   const oportTeto=((D.teto&&D.teto.fluxos)||[]).filter(r=>_bpTetoFlags.has(r.item)).map(r=>{
     const mod=r.receita_potencial_moderado||0, otm=Math.max(r.receita_potencial||0, mod);
     return {cliente:r.cliente, origem:r.origem, destino:r.destino, produto:r.produto, corredor:r.corredor,
-      tipo:'teto', tipo_label:'Diferencial de teto',
-      valor_mes:mod/12, valor_ano_otimista:otm, valor_ano_moderado:mod, vigencia:r.vigencia, alvo:!!r.alvo,
-      racional:`Acessória cobrada R$ ${N1(r.acessorias)}/t vs. sugerida R$ ${r.acess_sugerida!=null?N1(r.acess_sugerida):'—'}/t (${r.acess_sugerida_fonte||'estimativa'})`
-        +`, ocupando ${r.pct_teto!=null?PCT(r.pct_teto*100):'—'} do teto tarifário. Marcado como alvo na aba Teto Tarifário.`};
+      // 25/nov/2026: o ganho desta linha é acessória (cobrada menos sugerida) vezes volume; o teto só
+      // aparece como contexto. Entrava como "Diferencial de teto" e confundia a leitura do sócio.
+      // ktipo guarda a chave antiga para não perder probabilidade e complexidade já classificadas.
+      tipo:'acessoria', ktipo:'teto', tipo_label:'Diferencial de acessórias',
+      valor_mes:mod/12, valor_ano_otimista:otm, valor_ano_moderado:mod, vigencia:r.vigencia, alvo:!!r.alvo, _src:r, fonteAba:'Teto Tarifário',
+      racional:`Acessórias cobradas R$ ${N1(r.acessorias)}/t`+((r.dp||0)>0?` (inclui R$ ${N1(r.dp)}/t de direito de passagem)`:'')
+        +` contra referência de R$ ${r.acess_sugerida_moderado!=null?N1(r.acess_sugerida_moderado):'n/d'}/t (${r.acess_sugerida_fonte||'estimativa'})`
+        +`. Frete + DP em ${r.pct_teto!=null?PCT(r.pct_teto*100):'n/d'} do teto, só como contexto: o ganho aqui é de acessória. Marcado como alvo na aba Teto Tarifário.`};
   });
   const oportunidades=[...oportPreco, ...oportAcess, ...oportTeto];
   oportunidades.forEach(o=>{
@@ -2125,11 +2192,116 @@ if(D.comparativo && D.comparativo.tarifas){
     bpRecalcCliente(o.cliente);
     kpisBpTopo(); bpFilterPortfolio();
   });
+
+  /* ---- CAIXA DO CÁLCULO (25/nov/2026): abre ao clicar na oportunidade ou no racional ----
+     Mostra a conta linha a linha e a tabela dos pares que formaram a referência, refeita com os
+     MESMOS agrupamentos do build: preço = rota + produto (Comparativo); acessória do Hub = serviço +
+     estação; aba Teto = família (produto + origem + destino) ou, sem par, IPOA de referência e média
+     do corredor. Fecha com a leitura da mesma rota no Painel do Cliente (regra vigente), para o
+     sócio ver quando os dois modelos divergem. */
+  const bpN2=v=>v==null||!isFinite(v)?'n/d':v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const bpMed=a=>{ const x=a.filter(v=>v!=null&&isFinite(v)).sort((p,q)=>p-q); if(!x.length) return null; const m=x.length>>1; return x.length%2?x[m]:(x[m-1]+x[m])/2; };
+  function bpCalcHtml(o){
+    const r=o._src||{}, L=(a,b,c)=>`<tr${c?' class="tot"':''}><td>${a}</td><td class="n">${b}</td></tr>`;
+    const tab=(heads,rows)=>rows.length?`<div class="tbl-wrap" style="max-height:260px"><table class="cx-t"><thead><tr>${heads.map((h,i)=>`<th${i?' class="n"':''}>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(l=>`<tr>${l.map((c,i)=>`<td${i?' class="n"':''}>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:'<p class="muted">Sem par para listar.</p>';
+    let conta='', pares='', avisos=[];
+    if(o.ktipo==='teto'){
+      const dp=r.dp||0, cob=r.acessorias||0, refM=r.acess_sugerida_moderado, refO=r.acess_sugerida, vol=r.vol12_kt||0;
+      conta=`<table class="cx-c">`+
+        (r.acess_origem!=null?L('Manobra na origem', 'R$ '+bpN2(r.acess_origem)+'/t')+L('Manobra no destino','R$ '+bpN2(r.acess_destino)+'/t')+L('Outras (transbordo, direito de passagem e demais)','R$ '+bpN2(r.acess_outras)+'/t'):'')+
+        L('Acessórias cobradas','R$ '+bpN2(cob)+'/t',1)+
+        (dp>0?L('das quais direito de passagem','R$ '+bpN2(dp)+'/t'):'')+
+        L('Referência, moderado ('+escAttr(r.acess_sugerida_fonte||'')+')','R$ '+bpN2(refM)+'/t')+
+        L('Diferença, moderado','R$ '+bpN2(r.acess_delta_moderado)+'/t')+
+        L('Volume dos últimos 12 meses', vol?N1(vol)+' kt':'n/d')+
+        L('Ganho moderado por ano', BRL0(o.valor_ano_moderado),1)+
+        L('Referência, otimista (menor par)','R$ '+bpN2(refO)+'/t')+L('Ganho otimista por ano', BRL0(o.valor_ano_otimista),1)+
+        L('Frete + DP sobre o teto', r.pct_teto!=null?PCT(r.pct_teto*100)+' (frete R$ '+bpN2(r.frete)+', teto R$ '+bpN2(r.teto)+')':'n/d')+`</table>`;
+      const T=(D.teto&&D.teto.fluxos)||[];
+      const fam=x=>x.fam_vtu?('FAM|'+x.origem):(x.produto+'|'+x.origem+'|'+x.destino);
+      const ps=T.filter(x=>x.cliente!==r.cliente&&fam(x)===fam(r)&&x.acessorias!=null);
+      if(ps.length){
+        pares=`<h4>Pares da família: ${r.fam_vtu?'carvão, coque e antracito com origem em VTU':'mesmo produto, origem e destino'}</h4>`+
+          tab(['Cliente','Item','Rota','Acessórias R$/t','das quais DP'], ps.sort((a,b)=>a.acessorias-b.acessorias).map(x=>[escAttr(x.cliente), x.item, x.origem+'→'+x.destino, bpN2(x.acessorias), (x.dp||0)>0?bpN2(x.dp):'']))+
+          `<p class="muted">Menor par R$ ${bpN2(Math.min(...ps.map(x=>x.acessorias)))}/t (otimista) · mediana R$ ${bpN2(bpMed(ps.map(x=>x.acessorias)))}/t (moderado).</p>`;
+      } else {
+        const ipoaRef=(D.teto&&D.teto.ipoa_ref)||0.248, a=(r.frete||0)>0?ipoaRef*r.frete:null;
+        const cl=T.filter(x=>x.cliente!==r.cliente&&x.produto===r.produto&&x.corredor===r.corredor&&x.acessorias!=null);
+        const b=cl.length?cl.reduce((s2,x)=>s2+x.acessorias,0)/cl.length:null;
+        pares=`<h4>Sem par na mesma rota: a referência é uma estimativa</h4><table class="cx-c">`+
+          L(`IPOA de referência ${(ipoaRef*100).toFixed(1).replace('.',',')}% × frete R$ ${bpN2(r.frete)}`, a!=null?'R$ '+bpN2(a)+'/t':'n/d')+
+          L(`Média das acessórias de ${cl.length} linha(s) de outros clientes, mesmo produto no corredor ${escAttr(r.corredor||'n/d')}`, b!=null?'R$ '+bpN2(b)+'/t':'n/d')+
+          L('Média simples das duas','R$ '+bpN2(refM)+'/t',1)+`</table>`+
+          tab(['Cliente','Item','Rota','Acessórias R$/t'], cl.sort((x,y)=>x.acessorias-y.acessorias).slice(0,40).map(x=>[escAttr(x.cliente), x.item, x.origem+'→'+x.destino, bpN2(x.acessorias)]));
+        avisos.push('Referência estimada, sem par direto na rota. Moderado e otimista saem iguais.');
+      }
+      if(dp>0) avisos.push(`O valor cobrado inclui R$ ${bpN2(dp)}/t de direito de passagem. Pela regra de 19/nov/2026 o DP não é acessória (soma ao frete no teste do teto). Sem o DP a diferença cai para R$ ${bpN2(Math.max(0,cob-dp-(refM||0)))}/t.`);
+      const irm=T.filter(x=>x.cliente===r.cliente&&x.origem===r.origem&&x.destino===r.destino&&x.produto===r.produto&&x.item!==r.item);
+      if(irm.length) avisos.push(`A rota tem mais ${irm.length} item(ns) do mesmo cliente e produto (${irm.slice(0,6).map(x=>x.item).join(', ')}). Cada item recebe o volume inteiro da rota: marcar mais de um conta o mesmo volume mais de uma vez.`);
+    } else if(o.tipo==='acessoria'){
+      const S2=(D.acess_hub&&D.acess_hub.sim)||[];
+      const ps=S2.filter(x=>x.cliente!==r.cliente&&x.servicos===r.servicos&&x.site===r.site&&x.tarifa!=null);
+      const liq=x=>x.tarifa_liq!=null?x.tarifa_liq:x.tarifa;
+      conta=`<table class="cx-c">`+L(escAttr(r.servicos)+' em '+escAttr(r.site),'R$ '+bpN2(r.tarifa)+'/t',1)+
+        (r.tarifa_liq!=null&&Math.abs(r.tarifa_liq-r.tarifa)>0.005?L('líquido de PIS/COFINS','R$ '+bpN2(r.tarifa_liq)+'/t'):'')+
+        L('Mediana dos pares (nos termos do cliente)','R$ '+bpN2(r.med_pares)+'/t')+L('Diferença, moderado','R$ '+bpN2(r.med_pares!=null?Math.max(0,r.tarifa-r.med_pares):null)+'/t')+
+        L('Volume por ano', r.vol_ano?N1(r.vol_ano/1000)+' kt':'n/d')+L('Ganho moderado por ano', BRL0(o.valor_ano_moderado),1)+
+        L('Menor par','R$ '+bpN2(r.min_pares)+'/t')+L('Ganho otimista por ano', BRL0(o.valor_ano_otimista),1)+`</table>`;
+      pares=`<h4>Pares: mesmo serviço na mesma estação (${ps.length} linha(s), ${new Set(ps.map(x=>x.cliente)).size} cliente(s))</h4>`+
+        tab(['Cliente','Rota','Produto','Tarifa R$/t','Líquida de PIS/COFINS'], ps.sort((a,b)=>liq(a)-liq(b)).slice(0,60).map(x=>[escAttr(x.cliente), (x.origem||'')+'→'+(x.destino||''), escAttr(x.produto||''), bpN2(x.tarifa), bpN2(liq(x))]));
+      if(/PASSAGEM/.test(r.servicos||'')) avisos.push('Direito de passagem não é acessória pela regra de 19/nov/2026: é relação entre ferrovias e soma ao frete no teste do teto. Trate este item como frete.');
+      if(r.elim) avisos.push('Serviço de cobrança questionável: o otimista elimina o valor inteiro.');
+      if((r.n_pares_cli||0)===1) avisos.push('Só um cliente par na estação: mediana e menor par são o mesmo valor.');
+      const outrosProd=new Set(ps.map(x=>x.produto)); outrosProd.delete(r.produto);
+      if(outrosProd.size) avisos.push(`A comparação desta aba junta produtos diferentes na mesma estação (${[...outrosProd].slice(0,5).map(escAttr).join(', ')}). O Painel do Cliente compara só dentro da mesma família (farelo só com farelo).`);
+    } else {
+      const TF=(D.comparativo&&D.comparativo.tarifas)||[];
+      const ps=TF.filter(x=>x.cliente!==r.cliente&&x.origem===r.origem&&x.destino===r.destino&&x._prod_grp_tarifa===r._prod_grp_tarifa);
+      const liq=x=>x.total_liq!=null?x.total_liq:x.total;
+      conta=`<table class="cx-c">`+L('Tarifa total do cliente','R$ '+bpN2(r.total)+'/t',1)+
+        L('frete · acessórias','R$ '+bpN2(r.frete)+' · R$ '+bpN2(r.acess))+
+        (r.total_liq!=null&&Math.abs(r.total_liq-r.total)>0.005?L('líquida de PIS/COFINS','R$ '+bpN2(r.total_liq)+'/t'):'')+
+        L('Mediana dos pares (nos termos do cliente)','R$ '+bpN2(r.med_pares)+'/t')+L('Diferença sobre a mediana','R$ '+bpN2(r.gap_med)+'/t'+(r.gap_pct!=null?' ('+r.gap_pct.toFixed(1)+'%)':''))+
+        L('Volume dos últimos 12 meses', r.vol12_kt?N1(r.vol12_kt)+' kt':'n/d')+L('Ganho moderado por ano', BRL0(o.valor_ano_moderado),1)+
+        L('Menor pagador'+(r.melhor_pagador?' ('+escAttr(r.melhor_pagador)+')':''),'R$ '+bpN2(r.min_pares)+'/t')+L('Ganho otimista por ano', BRL0(o.valor_ano_otimista),1)+`</table>`;
+      pares=`<h4>Pares: mesma rota e produto (${new Set(ps.map(x=>x.cliente)).size} cliente(s))</h4>`+
+        tab(['Cliente','Item','Tarifa total R$/t','Líquida de PIS/COFINS','Frete','Acessórias'], ps.sort((a,b)=>liq(a)-liq(b)).map(x=>[escAttr(x.cliente), x.item||'', bpN2(x.total), bpN2(liq(x)), bpN2(x.frete), bpN2(x.acess)]));
+      if(new Set(ps.map(x=>x.cliente)).size===1) avisos.push('Só um cliente par na rota: mediana e menor pagador são o mesmo valor.');
+    }
+    // mesma rota no Painel do Cliente (regra vigente)
+    let pc='';
+    try{ const API=window.PC_API;
+      if(API){ const c=API.canonPC(o.cliente);
+        const fs=API.pjDo(c).filter(f=>!API.isRetro(f.fluxo)).filter(f=>{ const ro=API.fluxoRota(f); return ro&&ro.origem===o.origem&&ro.destino===o.destino; });
+        if(fs.length){ const g=API.ganhoAcessCliente(c).porFluxo||{};
+          const m=fs.reduce((a,f)=>a+((g[API.fkey(f)]||{}).mod||0),0), ot=fs.reduce((a,f)=>a+((g[API.fkey(f)]||{}).otm||0),0);
+          const dif=o.tipo==='acessoria'&&o.valor_ano_moderado>0&&Math.abs(m-o.valor_ano_moderado)>Math.max(50000,0.25*o.valor_ano_moderado);
+          pc=`<h4>Mesma rota no Painel do Cliente</h4><table class="cx-c">`+L(`Acessórias, moderado (${fs.length} fluxo(s) na rota)`, BRL0(m))+L('Acessórias, otimista', BRL0(ot))+`</table>`+
+            `<p class="muted">Regra vigente: manobra e transbordo contra pares na mesma estação e família, líquido de PIS/COFINS, sem direito de passagem, grãos e farelo mês a mês.</p>`+
+            (dif?`<p class="cx-av">Os dois modelos divergem nesta rota. Para apresentar ao cliente, use o número do Painel do Cliente.</p>`:'')+
+            `<span class="chip on" data-cxpc="${escAttr(c)}" style="cursor:pointer">Abrir no Painel do Cliente</span>`; }
+        else pc=`<h4>Mesma rota no Painel do Cliente</h4><p class="muted">Sem fluxo curado para esta rota no Painel do Cliente.</p>`; } }catch(e){ pc=''; }
+    return `<div class="cx-h"><div><div class="cx-tp">${o.tipo_label} · origem: aba ${o.fonteAba||''}</div><h3>${escAttr(o.cliente)} · ${o.origem}→${o.destino}</h3><div class="muted">${escAttr(o.produto||'')}${r.item?' · item '+r.item:''}</div></div><span class="cx-x" data-cxclose="1" title="Fechar">✕</span></div>`+
+      `<h4>Conta</h4>`+conta+(avisos.length?`<div class="cx-av">${avisos.map(a=>'<div>'+a+'</div>').join('')}</div>`:'')+pares+pc;
+  }
+  function bpAbreCalculo(o){
+    let ov=document.getElementById('cxOverlay');
+    if(!ov||!ov.classList||!ov._cx){ ov=document.createElement('div'); ov.id='cxOverlay'; ov.className='cx-ov'; ov._cx=1; ov.innerHTML='<div class="cx-box" id="cxBox"></div>'; document.body.appendChild(ov);
+      ov.addEventListener('click',e=>{ if(e.target===ov||e.target.closest('[data-cxclose]')) ov.classList.remove('show');
+        const a=e.target.closest('[data-cxpc]'); if(a){ ov.classList.remove('show'); activateTab('basepotenciais', true); window.PC_API&&window.PC_API.abrirPainel&&window.PC_API.abrirPainel(a.dataset.cxpc,'teto'); } });
+      document.addEventListener('keydown',e=>{ if(e.key==='Escape') ov.classList.remove('show'); }); }
+    let html; try{ html=bpCalcHtml(o); }catch(e){ console.error('caixa do cálculo:', e); html='<p>Não foi possível montar o cálculo desta oportunidade.</p>'; }
+    const bx=document.getElementById('cxBox'); if(bx) bx.innerHTML=html; ov.classList.add('show');
+  }
+  window.BP_CALC={html:bpCalcHtml, abrir:bpAbreCalculo};
   function bpMostraRacional(r){
     const el=document.getElementById('bpRacional');
     el.style.display='';
-    el.innerHTML=`<b>${r.tipo_label} — ${r.origem}→${r.destino} (${r.produto})</b><br><br>${r.racional}`;
+    el.innerHTML=`<b>${r.tipo_label} · ${r.origem}→${r.destino} (${r.produto})</b><br><br>${r.racional}<br><span class="chip on" style="margin-top:10px;cursor:pointer">Ver o cálculo</span>`;
+    el.style.cursor='pointer'; el.title='Clique para abrir o detalhe do cálculo';
+    el.onclick=()=>bpAbreCalculo(r);
     el.scrollIntoView({behavior:'smooth',block:'nearest'});
+    bpAbreCalculo(r);
   }
   const MES12=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   function bpRenderMensal(rowsCli){
@@ -7290,13 +7462,17 @@ renderContas(); ctFilter();
     const rows=todos.filter(c=>!qq||c.toLowerCase().includes(qq));
     document.getElementById('alvCount').textContent=rows.length+' de '+todos.length+' clientes';
     document.getElementById('alvList').innerHTML=rows.map(c=>`
-      <div class="alv-row"><input type="checkbox" id="av_${encodeURIComponent(c)}" ${alvoSet.has(c)?'checked':''}>
-      <label for="av_${encodeURIComponent(c)}">${c}</label></div>`).join('') || '<div class="alv-row muted">nenhum cliente encontrado</div>';
+      <div class="alv-row" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="av_${encodeURIComponent(c)}" ${alvoSet.has(c)?'checked':''}>
+      <label for="av_${encodeURIComponent(c)}">${c}</label>${prioSelHtml(c)}</div>`).join('') || '<div class="alv-row muted">nenhum cliente encontrado</div>';
     rows.forEach(c=>{
       const el=document.getElementById('av_'+encodeURIComponent(c));
-      if(el) el.onchange=()=>{ if(el.checked) alvoSet.add(c); else alvoSet.delete(c); alvoSave(); location.reload(); };
+      if(el) el.onchange=()=>{ setAlvo(c, el.checked); alvMudou(); };
     });
+    document.querySelectorAll('#alvList [data-prio]').forEach(s=>s.onchange=()=>{ setPrio(decodeURIComponent(s.dataset.prio), s.value); alvMudou(); });
   }
+  // sem recarregar a página a cada clique: atualiza o Início e avisa que as outras abas leem a marcação ao recarregar
+  function alvMudou(){ alvRender(); if(window.INICIO_API&&window.INICIO_API.alvoMudou) window.INICIO_API.alvoMudou(); }
+  window.ALVOS_RENDER=alvRender;
   document.getElementById('alvSearch').oninput=alvRender;
   document.getElementById('alvReset').onclick=()=>{ alvoSet=new Set(D.meta.alvos_default||[]); alvoSave(); location.reload(); };
   alvRender();
@@ -8668,23 +8844,36 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
       document.getElementById('iniHero').innerHTML=
         card('b','Baixo risco',mi(T('baixo')),'/ano',`+ ${mi(T('baixoRet'))} de recuperação única, com documento`,hcBaixo)+
         card('m','Médio risco',mi(T('medio')),'/ano','acessórias e isonomia contra a mediana dos pares',hcMedio)+
-        card('a','Alto risco',mi(T('alto')),'/ano','menor par e teses na ANTT',hcAlto)+
-        card('r','Retroativo',mi(T('retroM')),'único','moderado; otimista '+mi(T('retroO')),hcRetro);
+        card('r','Retroativo',mi(T('retroM')),'único','moderado; otimista '+mi(T('retroO')),hcRetro)+
+        card('a','Alto risco',mi(T('alto')),'/ano','menor par e teses na ANTT',hcAlto);
       const chave={medio:'medio',baixo:'baixo',alto:'alto',retro:'retroM'}[ord];
-      const rows=L0.filter(x=>fil==='todos'||(fil==='alvo'&&x.alvo)||(fil==='venc'&&x.venc12>0))
+      L0.forEach(x=>{ x.alvo=alvoSet.has(x.c); x.prio=prioMap[x.c]||''; });
+      const passa=x=>fil==='todos'||(fil==='alvo'&&x.alvo)||(fil==='venc'&&x.venc12>0)||(fil==='semprio'&&!x.prio)||(/^P[123]$/.test(fil)&&x.prio===fil);
+      const rows=L0.filter(passa)
         .sort((a,b)=>(b[chave]+(ord==='baixo'?b.baixoRet:0))-(a[chave]+(ord==='baixo'?a.baixoRet:0)));
       const mx=Math.max(1,...rows.map(x=>x.alto));
       const n=v=>v>0?mi0(v):'<span style="color:var(--mut2)">n/d</span>';
-      document.getElementById('iniTbl').innerHTML=`<thead><tr><th>Cliente</th><th class="n" data-hc="${hcBaixo}"><span class="dot b"></span> Baixo</th><th class="n" data-hc="${hcMedio}"><span class="dot m"></span> Médio</th><th class="n" data-hc="${hcAlto}"><span class="dot a"></span> Alto</th><th class="n" data-hc="${hcRetro}">Retroativo</th><th class="n">Alavancas</th></tr></thead><tbody>`+
-        rows.map(x=>`<tr data-cli="${escAttr(x.c)}" data-hc="${hcLinha(x)}"><td><div class="cli">${escAttr(x.c)} ${x.alvo?'<span class="pill alvo">alvo</span>':''}</div>
+      document.getElementById('iniTbl').innerHTML=`<thead><tr><th class="ck" title="Cliente-alvo LogConsult">Alvo</th><th>Cliente</th><th>Prioridade</th><th class="n" data-hc="${hcBaixo}"><span class="dot b"></span> Baixo</th><th class="n" data-hc="${hcMedio}"><span class="dot m"></span> Médio</th><th class="n" data-hc="${hcRetro}"><span class="dot r"></span> Retroativo</th><th class="n" data-hc="${hcAlto}"><span class="dot a"></span> Alto</th><th class="n">Alavancas</th></tr></thead><tbody>`+
+        rows.map(x=>`<tr data-cli="${escAttr(x.c)}" data-hc="${hcLinha(x)}"><td class="ck" data-nopen="1"><input type="checkbox" data-alvo="${encodeURIComponent(x.c)}"${x.alvo?' checked':''} aria-label="Alvo"></td>
+          <td><div class="cli">${escAttr(x.c)}</div>
           <div class="bar" style="width:${Math.max(4,Math.round(x.alto/mx*100))}%"><i style="width:${x.alto?Math.round(x.medio/x.alto*100):0}%;background:var(--r-medio)"></i><i style="flex:1;background:var(--r-alto-bg)"></i></div></td>
-          <td class="n">${n(x.baixo)}${x.baixoRet>0?`<div class="sub">+${mi0(x.baixoRet)} único</div>`:''}</td><td class="n" style="font-weight:600">${n(x.medio)}</td><td class="n">${n(x.alto)}</td>
-          <td class="n" style="color:var(--mut)">${n(x.retroM)}</td><td class="n" style="color:var(--mut)">${x.nAl||''}</td></tr>`).join('')+'</tbody>';
-      document.getElementById('iniCount').textContent=`${rows.length} clientes · R$ mi`;
+          <td data-nopen="1">${prioSelHtml(x.c)}</td>
+          <td class="n">${n(x.baixo)}${x.baixoRet>0?`<div class="sub">+${mi0(x.baixoRet)} único</div>`:''}</td><td class="n" style="font-weight:600">${n(x.medio)}</td>
+          <td class="n">${n(x.retroM)}</td><td class="n" style="color:var(--mut)">${n(x.alto)}</td><td class="n" style="color:var(--mut)">${x.nAl||''}</td></tr>`).join('')+'</tbody>';
+      const tot=k=>rows.reduce((s,x)=>s+(x[k]||0),0);
+      document.getElementById('iniCount').textContent=`${rows.length} clientes · médio ${mi0(tot('medio'))} · retroativo ${mi0(tot('retroM'))} · R$ mi`;
     }
+    function alvoMudou(){ const a=document.getElementById('iniAviso'); if(a) a.hidden=false; render(); }
+    document.getElementById('iniRecarregar').onclick=()=>location.reload();
     document.querySelectorAll('[data-iord]').forEach(c=>c.onclick=function(){ document.querySelectorAll('[data-iord]').forEach(x=>x.classList.remove('on')); this.classList.add('on'); ord=this.dataset.iord; render(); });
     document.querySelectorAll('[data-ifil]').forEach(c=>c.onclick=function(){ document.querySelectorAll('[data-ifil]').forEach(x=>x.classList.remove('on')); this.classList.add('on'); fil=this.dataset.ifil; render(); });
-    document.getElementById('iniTbl').addEventListener('click',e=>{ const tr=e.target.closest('tr[data-cli]'); if(tr) abrirCliente(tr.dataset.cli, true); });
+    const iniTbl=document.getElementById('iniTbl');
+    iniTbl.addEventListener('change',e=>{ const t=e.target;
+      if(t.dataset.alvo) setAlvo(decodeURIComponent(t.dataset.alvo), t.checked);
+      else if(t.dataset.prio) setPrio(decodeURIComponent(t.dataset.prio), t.value);
+      else return;
+      if(window.ALVOS_RENDER) window.ALVOS_RENDER(); alvoMudou(); });
+    iniTbl.addEventListener('click',e=>{ if(e.target.closest('[data-nopen]')) return; const tr=e.target.closest('tr[data-cli]'); if(tr) abrirCliente(tr.dataset.cli, true); });
     // ---- PÁGINA DO CLIENTE ----
     const irPara=(tab, ids, c)=>{ activateTab(tab, true); (ids||[]).forEach(id=>{ const el=document.getElementById(id); if(el){ el.value=c; el.dispatchEvent(new Event('input',{bubbles:true})); } }); };
     function abrirCliente(c, push){
@@ -8760,7 +8949,7 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
     function renderDepois(){ if(linhas) return render();
       document.getElementById('iniHero').innerHTML='<div class="ini-k" style="grid-column:1/-1"><div class="t">Calculando os ganhos de cada cliente…</div></div>';
       setTimeout(render, 30); }
-    window.INICIO_API={calc, render, renderDepois, abrirCliente};
+    window.INICIO_API={calc, render, renderDepois, abrirCliente, alvoMudou};
   }catch(e){ console.error('Início:', e); }
 })();
 
@@ -8781,12 +8970,12 @@ const RAIL={
     const top=BP.por_cliente[0];
     const totAno=BP.por_cliente.reduce((s,c)=>s+(c.potencial_ano_moderado||0),0);
     const nPreco=BP.oportunidades.filter(o=>o.tipo==='preco').length;
-    const nAcess=BP.oportunidades.filter(o=>o.tipo==='acessoria').length;
-    const nTeto=BP.oportunidades.filter(o=>o.tipo==='teto').length;
+    const nAcess=BP.oportunidades.filter(o=>o.tipo==='acessoria'&&o.ktipo!=='teto').length;
+    const nTeto=BP.oportunidades.filter(o=>o.ktipo==='teto').length;
     return [
-      {hd:'Potencial total mapeado', ref:BRLmi(totAno)+'/ano', bd:BP.por_cliente.length+' clientes · '+BP.oportunidades.length+' oportunidades (rota × tipo) marcadas como alvo nas abas Acessórias, Teto Tarifário e Comparativo, somando diferencial de preço, acessórias e teto.'},
+      {hd:'Potencial total mapeado', ref:BRLmi(totAno)+'/ano', bd:BP.por_cliente.length+' clientes · '+BP.oportunidades.length+' oportunidades (rota × tipo) marcadas como alvo nas abas Acessórias, Teto Tarifário e Comparativo, somando diferencial de preço e de acessórias.'},
       {hd:'Maior potencial', ref:top.cliente, bd:BRLmi(top.potencial_ano_moderado)+'/ano em '+top.n_oportunidades+' oportunidade(s) — clique no cliente na tabela pra abrir a página dele, com detalhe e racional de cada uma.'},
-      {hd:'Por tipo', ref:nPreco+' de preço · '+nAcess+' de acessórias · '+nTeto+' de teto', bd:'Preço vem do Comparativo de Tarifas (gap vs. mediana dos pares); Acessórias vem do Hub Acessórias; Teto vem do simulador de Teto Tarifário (gap entre acessória cobrada e sugerida).'},
+      {hd:'Por tipo', ref:nPreco+' de preço · '+(nAcess+nTeto)+' de acessórias', bd:'Preço vem do Comparativo de Tarifas (diferença contra a mediana dos pares). Acessórias vêm de duas abas: '+nAcess+' do Hub Acessórias (serviço a serviço, na mesma estação) e '+nTeto+' da aba Teto Tarifário (acessória cobrada contra a sugerida). Clique na oportunidade para ver o cálculo.'},
     ];
   },
   horizontes(){
@@ -9033,6 +9222,9 @@ function activateTab(tab, push, titulo){
 function rotear(h, push){
   h=decodeURIComponent(h||'');
   if(h.startsWith('cliente/')&&window.INICIO_API) return window.INICIO_API.abrirCliente(h.slice(8), push);
+  if(h==='alvos'){ // a antiga aba Clientes-alvo agora fica no Início (25/nov/2026)
+    const r=activateTab('inicio', push); const d=document.getElementById('iniAlvos');
+    if(d){ d.open=true; d.scrollIntoView&&d.scrollIntoView({block:'start'}); } return r; }
   return activateTab(h||'inicio', push);
 }
 document.querySelectorAll('.navlist button').forEach(b=>b.onclick=()=>activateTab(b.dataset.tab,true));

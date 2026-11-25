@@ -1090,10 +1090,18 @@ except Exception as e:
 # Nenhum dos dois tem cláusula de direito de passagem. Cl. 3.4: nova acessória só com aditivo.
 CONTRATOS_LIDOS = {"CZARNIKOW": "C_2025_175", "ALVORADA": "C_2026_2"}
 PCT_CONTRATO = {"FCA": 5.0, "FNS": 8.0}
+# Escopo de cada contrato lido: só os produtos que ele cobre. A Ficha de 24/nov/2026 trouxe o açúcar da
+# Czarnikow, que roda no contrato C_2026_44 (não lido): sem este filtro as regras do contrato de grãos
+# caíam sobre o açúcar e a alavanca 34 subia R$ 7 mi/ano no cenário de baixo risco, sem documento.
+CONTRATO_PRODUTOS = {"CZARNIKOW": ("SOJA", "MILHO"), "ALVORADA": ("SOJA", "MILHO")}
+
+
+def _no_escopo(d):
+    return pd.Series([str(p).upper() in CONTRATO_PRODUTOS.get(c, ()) for c, p in zip(d["cliente"], d["produto"])], index=d.index)
 
 
 def r_contrato_manobra(d):
-    a = d[d["cliente"].isin(CONTRATOS_LIDOS) & d["servico"].isin(MANOBRAS) & (d["valor"] > 0)
+    a = d[_no_escopo(d) & d["servico"].isin(MANOBRAS) & (d["valor"] > 0)
           & d["ferrovia"].isin(PCT_CONTRATO)].copy()
     a["total"] = [TOT_MES.get((int(i), int(mm))) for i, mm in zip(a["item"], a["mes"])]
     a = a[a["total"].notna() & (a["total"] > 0)]
@@ -1107,7 +1115,7 @@ def r_contrato_manobra(d):
 
 
 def r_contrato_dp(d):
-    a = d[d["cliente"].isin(CONTRATOS_LIDOS) & (d["categoria"] == "dp") & (d["valor"] > 0)].copy()
+    a = d[_no_escopo(d) & (d["categoria"] == "dp") & (d["valor"] > 0)].copy()
     a["cobrado"] = a["valor"]
     a["referencia"] = 0.0
     a["excesso"] = a["valor"]

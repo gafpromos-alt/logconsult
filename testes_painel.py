@@ -226,6 +226,13 @@ def testes_painel():
         ok(not ini.get("difAc"), f"Início: acessórias ≠ card do Painel do Cliente em {ini.get('difAc')}")
         ok(ini.get("abriu", 0) == 5, "página do cliente não abriu")
         ok(ini.get("alto", 0) + 1 >= ini.get("medio", 0), "Início: alto risco menor que médio")
+        tb = ini.get("tabela") or {}
+        ok(tb.get("selPrio", 0) == ini.get("n") and tb.get("ckAlvo", 0) == ini.get("n"),
+           f"Início: alvo/prioridade não aparece em toda linha {tb}")
+        ok(tb.get("ordemOk"), "Início: retroativo não está logo depois do médio")
+    cx = d.get("calc") or {}
+    if ok(cx.get("ok"), f"caixa do cálculo não montou: {cx.get('erro')}"):
+        ok(cx.get("n", 0) >= 100 and not cx.get("ruins"), f"caixa do cálculo com NaN/undefined: {cx.get('ruins')}")
     bl = d.get("alav_cli") or {}
     ok(bl.get("ok", 0) >= 20 and not bl.get("erros"), f"bloco de alavancas do Painel do Cliente: {bl}")
     cli = d.get("clientes") or {}

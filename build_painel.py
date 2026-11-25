@@ -2330,7 +2330,8 @@ data = {
                  "acess_sugerida_moderado","acess_delta_moderado",
                  "acess_origem","acess_destino","acess_outras",
                  "receita_potencial","receita_potencial_moderado","receita_ano","pct_potencial_receita",
-                 "ipoa","vigencia","ano_realizado","mes_realizado","vol12_kt","score","alvo"]].round(2)),
+                 "ipoa","vigencia","ano_realizado","mes_realizado","vol12_kt","score","alvo"]]
+                 .assign(fam_vtu=lambda d: ((d["origem"] == "VTU") & d["produto"].isin(_FAMILIA_CARVAO_COQUE_TARIFA)).astype(int)).round(2)),
            "cards": teto_cards, "scatter": scatter,
            "insights": teto_insights, "ipoa_ref": IPOA_REF},
   "ipoa": ipoa_data,

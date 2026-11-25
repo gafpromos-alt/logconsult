@@ -65,6 +65,20 @@ esses arquivos.
   busca global, histórico do navegador (`pushState`). Menu em 6 grupos; toda tela antiga segue no menu.
   Visual do GestALB (Inter, cinza #F5F5F7, cartões sem sombra, controle segmentado). Cartão explicativo:
   qualquer elemento com `data-hc` (bloco 10 do template). O Início calcula depois de desenhar (`renderDepois`).
+- **Ajustes de 25/nov/2026:** faixas laterais recolhidas (menu à esquerda, Insights à direita) que abrem ao
+  passar o mouse, por cima do conteúdo (CSS `@media (min-width:1101px)`). A aba Clientes-alvo saiu do menu:
+  a marcação de alvo (caixa de seleção) e a prioridade (`lc_prioridade_v1`: P1, P2, P3 ou vazio; `setAlvo`,
+  `setPrio`, `prioSelHtml`) ficam na tabela do Início, com filtro por prioridade; a lista completa e o backup
+  ficam no bloco recolhível `#iniAlvos` (o endereço `#alvos` abre esse bloco). Retroativo é a coluna ao lado
+  do Médio. No Portfólio por Cliente, oportunidade marcada na aba Teto Tarifário é ACESSÓRIA (o ganho é
+  acessória cobrada menos sugerida; `ktipo:'teto'` guarda a chave antiga das classificações) e clicar na
+  oportunidade abre a caixa do cálculo (`BP_CALC`, `bpCalcHtml`): conta, tabela dos pares com o mesmo
+  agrupamento do build e a leitura da mesma rota no Painel do Cliente. Pendências do modelo antigo dessas
+  abas (DP dentro da acessória, volume repetido por item, estimativa por IPOA) estão em
+  `../Melhorias_Modelo_2026-11-25.md`.
+- **Ficha de Fluxo, versão de 24/nov/2026** (com açúcar e combustíveis, 3.018 itens, 94 clientes): a anterior
+  está em `07_Dados VLI/_Arquivo`. A coluna nova "Chave Teto" traz o teto da VLI por produto e rota, diferente
+  do anterior em 1.278 itens.
 - `gerar_indice_videos.py` gera `09_Fotos/_indice_videos.csv` (diário de captura: vídeo →
   status/cliente/script). Rodar depois de minerar vídeos novos.
 - Regras de negócio que definem os números: `../06_Corporate_Memory/Regras_e_Decisoes_LogConsultOS.md`.

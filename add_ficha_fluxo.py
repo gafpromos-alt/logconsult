@@ -42,7 +42,7 @@ DB = BASE / "logconsult.db"
 XLSX = BASE.parent / "07_Dados VLI" / "Base_Consolidada_Ficha_de_Fluxo_Geral.xlsx"
 ANO = 2026
 MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
-FONTE = "Base_Consolidada_Ficha_de_Fluxo_Geral.xlsx (VLI, nov/2026)"
+FONTE = "Base_Consolidada_Ficha_de_Fluxo_Geral.xlsx (VLI, versão 24/nov/2026, com açúcar e combustíveis)"
 
 
 def categoria(servico):

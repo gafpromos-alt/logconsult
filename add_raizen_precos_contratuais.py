@@ -49,7 +49,9 @@ ITENS = {
                 destino="VPN", destino_nome="PEDRO NOLASCO",
                 produto="OLEO DIESEL", ferrovias="FCA+EFVM", video="IMG_0406.MOV"),
     41358: dict(origem="EYU", origem_nome="EMBIRUCU",
-                destino="VOV", destino_nome="GOVERNADOR VALADARES",
+                # era "VOV" (erro de digitação da mineração): Governador Valadares é VGV, e a Ficha de
+                # Fluxo da VLI de 24/nov/2026 confirma o item 41358 em EYU→VGV
+                destino="VGV", destino_nome="GOVERNADOR VALADARES",
                 produto="OLEO DIESEL", ferrovias="FCA+EFVM", video="IMG_0410.MOV"),
     41356: dict(origem="EYU", origem_nome="EMBIRUCU",
                 destino="VGV", destino_nome="GOVERNADOR VALADARES",
@@ -142,7 +144,7 @@ DADOS[41369] = [
     ("2026-03-10", "2026-03-10", "2027-03-31", 189.41, 244.74, 244.74, 184.16, "EFVM 173,41 + FCA 10,75", 25.00, 35.58, None),
 ]
 
-# --- 41358 | EYU->VOV (Governador Valadares) | OLEO DIESEL | FCA + EFVM ---
+# --- 41358 | EYU->VGV (Governador Valadares) | OLEO DIESEL | FCA + EFVM ---
 DADOS[41358] = [
     ("2026-06-29 11:15:33", "2026-07-10", "2027-03-31", 122.88, 96.43, 96.43, 46.43, "EFVM 41,26 + FCA 5,17", 25.00, 25.00, None),
     ("2026-05-28 11:00:59", "2026-06-10", "2027-03-31", 122.88, 96.37, 96.37, 55.24, "EFVM 49,09 + FCA 6,15", 25.00, 16.13, None),

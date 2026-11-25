@@ -99,9 +99,32 @@ const coleta = `
       const naoNum = L.filter(x => ['baixo','baixoRet','medio','alto','retroM'].some(k => !isFinite(x[k]))).length;
       const difAc = L.filter(x => Math.abs(x.acM - ganhoAcessCliente(x.c).mod) > 1).map(x => x.c);
       let abriu = 0; L.slice(0, 5).forEach(x => { if (window.INICIO_API.abrirCliente(x.c, false)) abriu++; });
-      out.inicio = {ok: true, n: L.length, naoNum, difAc, abriu,
+      // tabela (25/nov/2026): alvo + prioridade, retroativo logo depois do médio
+      window.INICIO_API.render();
+      const th = document.getElementById('iniTbl').innerHTML;
+      const iM = th.indexOf('> Médio</th>'), iR = th.indexOf('> Retroativo</th>'), iA = th.indexOf('> Alto</th>');
+      const tabela = {selPrio: (th.match(/class="prio-sel/g) || []).length, ckAlvo: (th.match(/data-alvo=/g) || []).length,
+        ordemOk: iM > 0 && iR > iM && iA > iR};
+      out.inicio = {ok: true, n: L.length, naoNum, difAc, abriu, tabela,
         medio: L.reduce((s, x) => s + x.medio, 0), alto: L.reduce((s, x) => s + x.alto, 0), baixo: L.reduce((s, x) => s + x.baixo, 0)};
     } catch (e) { out.inicio = {ok: false, erro: String(e.message || e)}; }
+  }
+  // caixa do cálculo do Portfólio por Cliente (25/nov/2026): monta para as três origens sem NaN/undefined
+  out.calc = {ok: false};
+  if (window.BP_CALC) {
+    try {
+      const mk = (r, ktipo, tipo) => ({cliente: r.cliente, origem: r.origem || '', destino: r.destino || '', produto: r.produto, tipo, ktipo,
+        tipo_label: 'x', valor_ano_moderado: 1, valor_ano_otimista: 2, _src: r});
+      const T = (D.teto.fluxos || []), ruins = []; let n = 0;
+      const amostras = [...T.filter(x => x.acess_sugerida_fonte && x.acess_sugerida_fonte.startsWith('estim')).slice(0, 40).map(r => mk(r, 'teto', 'acessoria')),
+        ...T.filter(x => x.acess_sugerida_fonte && x.acess_sugerida_fonte.startsWith('fam')).slice(0, 40).map(r => mk(r, 'teto', 'acessoria')),
+        ...((D.acess_hub && D.acess_hub.sim) || []).slice(0, 60).map(r => mk(r, undefined, 'acessoria')),
+        ...(D.comparativo.tarifas || []).slice(0, 60).map(r => mk(r, undefined, 'preco'))];
+      amostras.forEach(o => { const h = window.BP_CALC.html(o); n++;
+        if (!/Conta/.test(h) || /NaN|undefined/.test(h)) ruins.push(o.cliente + ' ' + o.origem + ' ' + o.destino + ' ' + (o.ktipo || o.tipo)); });
+      const sel = T.find(x => x.item === 18421);
+      out.calc = {ok: true, n, ruins: ruins.slice(0, 5), selectaTemDP: sel ? /direito de passagem/.test(window.BP_CALC.html(mk(sel, 'teto', 'acessoria'))) : null};
+    } catch (e) { out.calc = {ok: false, erro: String(e.message || e)}; }
   }
   // bloco de alavancas no Painel do Cliente: monta para todo cliente sem erro
   out.alav_cli = {ok: 0, erros: []};
