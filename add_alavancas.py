@@ -1298,6 +1298,55 @@ _T = _T[(_T["vol"] >= 1000) & (_T["rec"] > 0)]
 _T["liq"] = (_T["rec"] + _T["imp"]) / _T["vol"]
 _T["t"] = (-_T["imp"] / _T["rec"]).clip(0, 0.5)
 _r38 = []
+# GRÃO E FARELO POR MICRORREGIÃO (25/nov/2026, pedido do sócio): o P&L não tem a microrregião, então
+# para esses produtos o preço do mês vem da Ficha 2026 por item (tarifa total do mesmo mês do calendário,
+# ou o mais próximo), contra os itens dos OUTROS clientes na mesma origem, destino, produto e
+# microrregião no mesmo mês de preço. Ganho do mês = média dos itens do cliente (sem par conta zero)
+# vezes o volume do P&L daquele mês. Os demais produtos seguem pela rota inteira no P&L.
+_GR38 = {"SOJA", "MILHO", "FARELO SOJA", "FARELO MILHO"}
+_RF = REF.assign(prod=REF["produto"].map(normp), micro=REF["microrregiao"].fillna("").astype(str).str.strip())
+_RF = _RF[_RF["prod"].isin(_GR38)]
+_TOTI = {}
+for (_it, _m), _t in TOT_MES.items():
+    _TOTI.setdefault(_it, {})[_m] = _t
+def _tot_mes(it, m):
+    d = _TOTI.get(int(it))
+    if not d:
+        return None, None
+    mm = m if m in d else min(d, key=lambda x: abs(x - m))
+    return mm, d[mm]
+_RF_by = {k: g for k, g in _RF.groupby(["origem", "destino", "prod"])}
+_T_gr = _T[_T["prod"].isin(_GR38)]
+_T = _T[~_T["prod"].isin(_GR38)]
+for r in _T_gr.itertuples():
+    g = _RF_by.get((r.origem, r.destino, r.prod))
+    if g is None:
+        continue
+    meus = g[g["cliente"] == r.cli]
+    if not len(meus):
+        continue
+    m = (int(r.per) - 1) % 12 + 1
+    gaps = []
+    for it in meus.itertuples():
+        mp, tot = _tot_mes(it.item, m)
+        if tot is None:
+            gaps.append(0.0)
+            continue
+        a_it = aliq(r.cli, it.produto)
+        pares = g[(g["cliente"] != r.cli) & (g["micro"] == it.micro)]
+        porc = {}
+        for pi in pares.itertuples():
+            t2 = TOT_MES.get((int(pi.item), mp))
+            if t2:
+                porc.setdefault(pi.cliente, []).append(t2 * (1 - aliq(pi.cliente, pi.produto)))
+        if not porc:
+            gaps.append(0.0)
+            continue
+        ref = float(np.median([float(np.median(v)) for v in porc.values()]))
+        gaps.append(max(0.0, tot * (1 - a_it) - ref) / (1 - a_it))
+    exc = float(np.mean(gaps)) if gaps else 0.0
+    if exc > 0:
+        _r38.append({"cli": r.cli, "rota": f"{r.prod.lower()} {r.origem}→{r.destino}", "valor": exc * r.vol})
 for k, g in _T.groupby(["origem", "destino", "prod", "per"]):
     if g["cli"].nunique() < 2:
         continue
@@ -1314,7 +1363,8 @@ cat(38, "C", "Isonomia da tarifa total, líquida de tributos",
     "Lei 10.233/2001, art. 25 VIII", F_PNL, "cliente", "rs_ano",
     f"Tarifa total (frete + DP + acessórias) de cada cliente, líquida de ICMS e PIS/COFINS, contra a mediana dos OUTROS "
     f"clientes na mesma rota, produto e mês, nos 12 meses até {lbl_per(_PMX)}. Comparar o total elimina a troca entre "
-    "frete e acessória; tirar o tributo elimina a diferença de regime. Ganho devolvido aos termos do cliente. Caso mais "
+    "frete e acessória; tirar o tributo elimina a diferença de regime. Grão e farelo comparam também a microrregião do "
+    "item (Ficha 2026, mesmo mês), porque o P&L não a tem. Ganho devolvido aos termos do cliente. Caso mais "
     "claro: Raízen, maior cliente do diesel QPM→PPN e o maior preço da rota.",
     "Pedido de equalização com a mediana dos pares; a peça usa a fatura do cliente e a referência agregada, sem nomes.")
 

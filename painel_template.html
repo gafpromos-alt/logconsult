@@ -4602,7 +4602,8 @@ if(D.comparativo && D.comparativo.tarifas){
   // distinto por origem.
   const isoGrupoKey=r=>origGrupo(r.origem)+'|'+r.destino+'|'+pcProdIso(r.produto);
 
-  function pcRenderIso(){
+  function pcRenderIso(){ _pcRenderIsoBase(); try{ pcIsoMicroBloco(); }catch(e){ console.error('isonomia por microrregião:', e); } }
+  function _pcRenderIsoBase(){
     const ct=ctDo(pcCli), el=document.getElementById('pcTabIso');
     const rotas=ct.filter(r=>r.n_cli_rota>=2||sazDaRota(r).length);
     const semPar=ct.filter(r=>!rotas.includes(r));
@@ -5066,6 +5067,83 @@ if(D.comparativo && D.comparativo.tarifas){
   }
   _pcExposeAPI();
 
+  /* ---- ISONOMIA DE GRÃO E FARELO POR MICRORREGIÃO (25/nov/2026, pedido do sócio) ----
+     "Para clientes de grãos, no cálculo da isonomia, considerar além do terminal de origem e destino a
+     microrregião." Fonte: Ficha de Fluxo 2026 (frete + DP de cada item, mês a mês, e a microrregião do
+     item). Para cada mês da janela de 12 meses da base: cada item ATUAL do cliente na rota é comparado
+     com os itens dos OUTROS clientes na mesma origem, destino, produto e microrregião, no mesmo mês de
+     preço (um valor por cliente = mediana dos itens dele), líquido de PIS/COFINS e devolvido aos termos
+     do cliente. Moderado = mediana dos pares, otimista = menor. Item sem par na sua microrregião conta
+     zero. O ganho do mês é a média dos itens do cliente na rota (mesma regra do volume dividido igual
+     entre itens) vezes o volume do mês. O P&L não tem microrregião: ele continua só no retroativo. */
+  var _isoMiIdx=null;
+  function _isoMiIndex(){
+    if(_isoMiIdx) return _isoMiIdx;
+    _isoMiIdx={};
+    const SV=(D.ficha&&D.ficha.serie_svc)||{};
+    ((D.ficha&&D.ficha.itens)||[]).forEach(x=>{ if(!SV[x.item]) return;
+      const k=x.origem+'|'+x.destino+'|'+pcProdIso(x.produto);
+      (_isoMiIdx[k]=_isoMiIdx[k]||[]).push({item:x.item, c:canonPC(x.cliente), micro:x.microrregiao||'', status:x.status}); });
+    return _isoMiIdx;
+  }
+  function _isoMiLinha(item, m){ const sv=((D.ficha&&D.ficha.serie_svc)||{})[item]; if(!sv||!sv.length) return null;
+    return sv.find(r=>r[0]===m)||sv.reduce((b,r)=>Math.abs(r[0]-m)<Math.abs(b[0]-m)?r:b, sv[0]); }
+  function _isoMiExato(item, m){ const sv=((D.ficha&&D.ficha.serie_svc)||{})[item]; return sv?sv.find(r=>r[0]===m)||null:null; }
+  var _isoMiCache=null;
+  function isoMicroRota(cli, o, d, produto){
+    const ck=cli+'|'+o+'|'+d+'|'+produto; if(!_isoMiCache) _isoMiCache=new Map(); if(_isoMiCache.has(ck)) return _isoMiCache.get(ck);
+    const res=_isoMicroRota(cli, o, d, produto); _isoMiCache.set(ck,res); return res;
+  }
+  function _isoMicroRota(cli, o, d, produto){
+    const AL=(D.ficha&&D.ficha.aliq_item)||{};
+    const todos=_isoMiIndex()[o+'|'+d+'|'+pcProdIso(produto)]||[];
+    const meus=todos.filter(x=>x.c===cli&&x.status==='atual');
+    if(!meus.length) return null;
+    const vm=volMensal12(pcVolLookup(cli,o,d,produto))||{};
+    const mediana2=a=>{ const x=a.slice().sort((p,q)=>p-q), m=x.length>>1; return x.length%2?x[m]:(x[m-1]+x[m])/2; };
+    // referência dos pares de uma microrregião num mês de preço: {med, min, n} em R$/t líquido
+    const refCache={};
+    const refMicro=(micro, mp)=>{ const k=micro+'|'+mp; if(k in refCache) return refCache[k];
+      const porCli={}; todos.filter(x=>x.c!==cli&&x.micro===micro).forEach(x=>{ const r=_isoMiExato(x.item, mp); if(!r||!(r[4]>0)) return;
+        (porCli[x.c]=porCli[x.c]||[]).push(r[4]*(1-(AL[x.item]||0))); });
+      const v=Object.values(porCli).map(mediana2);
+      return refCache[k]=v.length?{med:mediana2(v), min:Math.min(...v), n:v.length}:null; };
+    let mod=0, otm=0, volT=0, nMes=0; const porMicro={};
+    for(let m=1;m<=12;m++){
+      const vol=vm[m]||0; if(!(vol>0)) continue; nMes++; volT+=vol;
+      let gMed=0, gMin=0;
+      meus.forEach(x=>{ const r=_isoMiLinha(x.item, m); if(!r||!(r[4]>0)) return;
+        const a=AL[x.item]||0, ref=refMicro(x.micro, r[0]);
+        const pm=porMicro[x.micro]=porMicro[x.micro]||{micro:x.micro, itens:new Set(), pares:0, base:[], med:[], min:[]};
+        pm.itens.add(x.item); pm.base.push(r[4]);
+        if(!ref) return;
+        pm.pares=Math.max(pm.pares, ref.n); pm.med.push(ref.med/(1-a)); pm.min.push(ref.min/(1-a));
+        gMed+=Math.max(0, r[4]-ref.med/(1-a)); gMin+=Math.max(0, r[4]-ref.min/(1-a)); });
+      mod+=gMed/meus.length*vol; otm+=gMin/meus.length*vol;
+    }
+    const avg=a=>a.length?a.reduce((p,q)=>p+q,0)/a.length:null;
+    const micros=Object.values(porMicro).map(pm=>({micro:pm.micro||'(sem microrregião)', nItens:pm.itens.size, pares:pm.pares,
+      base:avg(pm.base), med:avg(pm.med), min:avg(pm.min)})).sort((a,b)=>b.nItens-a.nItens);
+    return {otm, mod, volKt:volT/1000, deltaOtm:volT>0?otm/volT:0, deltaMod:volT>0?mod/volT:0,
+      modo:`ficha 2026 por microrregião, últimos 12 meses da base (${nMes} ${nMes===1?'mês':'meses'} com embarque)`, n:nMes,
+      micro:true, nItens:meus.length, micros};
+  }
+  function pcIsoMicroBloco(){
+    const el=document.getElementById('pcTabIso'); if(!el) return;
+    const ct=ctDo(pcCli), rSel=ct.find(r=>rkey(r)===pcRotaSel[pcCli]); if(!rSel||!classeGrao(rSel.produto)) return;
+    const g=isoMicroRota(pcCli, rSel.origem, rSel.destino, rSel.produto);
+    const n2=v=>v==null||!isFinite(v)?'n/d':v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const html=!g?`<div class="panel"><h2>Isonomia por microrregião</h2><div class="desc">Nenhum item atual deste cliente na Ficha de Fluxo 2026 para ${escAttr(rSel.origem)}→${escAttr(rSel.destino)} ${escAttr(rSel.produto)}: sem a microrregião do item, a isonomia desta rota usa a comparação pela rota inteira abaixo.</div></div>`
+      :`<div class="panel"><h2>Isonomia por microrregião · ${escAttr(rSel.origem)}→${escAttr(rSel.destino)} ${escAttr(rSel.produto)}</h2>
+      <div class="desc">Base do ganho desta rota nos cartões: frete + DP de cada item do cliente contra os itens dos outros clientes na mesma origem, destino, produto e microrregião, mês a mês (Ficha de Fluxo 2026), líquido de PIS/COFINS. Média dos ${g.nItens} item(ns) do cliente vezes o volume do mês. Valores abaixo: médias dos meses da janela.</div>
+      <div class="kpis" style="margin:10px 0"><div class="kpi"><div class="lbl">Moderado (mediana na microrregião)</div><div class="val">${BRLmi(g.mod)}<small>/ano · R$ ${n2(g.deltaMod)}/t</small></div></div>
+        <div class="kpi"><div class="lbl">Otimista (menor na microrregião)</div><div class="val">${BRLmi(g.otm)}<small>/ano · R$ ${n2(g.deltaOtm)}/t</small></div></div>
+        <div class="kpi"><div class="lbl">Volume</div><div class="val">${N1(g.volKt)}<small> kt · ${g.n} meses</small></div></div></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Microrregião</th><th class="num">Itens do cliente</th><th class="num">Clientes par</th><th class="num">Frete + DP do cliente R$/t</th><th class="num">Mediana dos pares R$/t</th><th class="num">Menor par R$/t</th></tr></thead><tbody>${
+        g.micros.map(m=>`<tr><td><b>${escAttr(m.micro)}</b></td><td class="num">${m.nItens}</td><td class="num">${m.pares||'<span class="muted">sem par</span>'}</td><td class="num">${n2(m.base)}</td><td class="num">${n2(m.med)}</td><td class="num">${n2(m.min)}</td></tr>`).join('')}</tbody></table></div>
+      <div class="desc" style="margin-top:6px">A comparação mensal pela rota inteira, a partir do P&L, continua abaixo como contexto; ela não separa microrregião.</div></div>`;
+    el.insertAdjacentHTML('afterbegin', html);
+  }
   function ganhoRotaIso(rSel){
     const ownAll=sazDaRota(rSel).filter(r=>canonPC(r.cliente)===pcCli).sort((a,b)=>(a.ano*12+a.mes)-(b.ano*12+b.mes));
     const ehGrao=GRAOS_RE.test(String(rSel.produto||''));
@@ -5073,6 +5151,9 @@ if(D.comparativo && D.comparativo.tarifas){
     // têm tarifa/acessória que varia mês a mês, pedido do usuário 20/jul/2026 pra também
     // valer aqui) — quando ativo, usa exatamente os meses selecionados em vez de "últimos 12".
     const perAtivo=!!(pcVolAnos.size||pcVolMeses.size);
+    // grão e farelo: microrregião (ficha 2026). Sem item na ficha, segue a rota inteira (P&L).
+    if(ehGrao && classeGrao(rSel.produto) && !perAtivo){
+      const gm=isoMicroRota(pcCli, rSel.origem, rSel.destino, rSel.produto); if(gm) return gm; }
     if(ehGrao && ownAll.length){
       // varredura 24/nov/2026: janela da BASE (não do último mês da rota) e SEM o fator 12 ÷ meses:
       // em grão, mês sem dado é mês sem embarque, não falta de dado. O fator inflava o card em
@@ -5198,7 +5279,7 @@ if(D.comparativo && D.comparativo.tarifas){
     const nGraos=iso.porRota.filter(r=>/últimos 12 meses/.test(r.modo)).length;
     const isoRacional=(otimista)=>{
       const partes=[`${escAttr(pcCli)}: ${iso.porRota.length} rota(s) com pelo menos 1 par (mesmo produto × origem × destino, 2+ clientes ou histórico mensal saz.).`];
-      if(nGraos) partes.push(`${nGraos} rota(s) de grãos: sobrepreço mês a mês nos últimos 12 meses realizados vs. ${otimista?'o menor pagador':'a mediana'} do mesmo mês, anualizado (12/nº de meses com dado).`);
+      if(nGraos) partes.push(`${nGraos} rota(s) de grãos e farelo: frete + DP de cada item contra ${otimista?'o menor par':'a mediana dos pares'} na mesma origem, destino, produto e microrregião, mês a mês nos últimos 12 meses (Ficha 2026), vezes o volume do mês.`);
       if(iso.porRota.length-nGraos>0) partes.push(`${iso.porRota.length-nGraos} rota(s) de outros produtos: tarifa do contrato vigente vs. ${otimista?'o menor':'a mediana dos'} par(es) atual(is) × volume/ano.`);
       partes.push(`Resultado: ${BRLmi(otimista?iso.otm:iso.mod)}/ano.`);
       return partes.join(' ');

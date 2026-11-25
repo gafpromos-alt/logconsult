@@ -129,6 +129,16 @@ const coleta = `
         medio: L.reduce((s, x) => s + x.medio, 0), alto: L.reduce((s, x) => s + x.alto, 0), baixo: L.reduce((s, x) => s + x.baixo, 0)};
     } catch (e) { out.inicio = {ok: false, erro: String(e.message || e)}; }
   }
+  // isonomia de grão por microrregião (25/nov/2026): rotas de grão dos clientes usam o caminho da ficha
+  out.isoMicro = {ok: false};
+  try {
+    let nMicro = 0, nRotasGrao = 0, ruins = [];
+    ['CARGILL', 'ADM', 'BUNGE', 'SELECTA', 'AMAGGI', 'COFCO'].forEach(c => {
+      const r = API.resumoCliente(c); (r.iso.porRota || []).forEach(pr => {
+        if (/SOJA|MILHO|FARELO/.test(pr.rota.produto)) { nRotasGrao++; if (pr.micro) nMicro++;
+          if (!isFinite(pr.mod) || !isFinite(pr.otm) || pr.otm + 1 < pr.mod) ruins.push(c + ' ' + pr.label); } }); });
+    out.isoMicro = {ok: true, nMicro, nRotasGrao, ruins: ruins.slice(0, 5)};
+  } catch (e) { out.isoMicro = {ok: false, erro: String(e.message || e)}; }
   // aba Porto do Painel do Cliente (25/nov/2026): Mosaic no TIPLAM com os três produtos e as referências
   out.porto = {ok: false};
   try {

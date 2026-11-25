@@ -99,6 +99,12 @@ esses arquivos.
   mesmo terminal e produto (anonimizados no modo apresentação); referências públicas em
   `precos_portos_referencia` (`add_porto_referencias.py`, curadas com fonte, data e tipo; em Santos só a
   lista do próprio TIPLAM é publicada). O ganho da aba é indicação: fora dos cartões e do Início.
+- **Isonomia de grão e farelo por MICRORREGIÃO (25/nov, regra do sócio):** par = outro cliente na mesma
+  origem, destino, produto E microrregião do item (Ficha 2026), no mesmo mês de preço, líquido de PIS/COFINS.
+  Painel do Cliente: `isoMicroRota` (frete + DP mês a mês, média dos itens do cliente × volume do mês; sem par =
+  zero; bloco "Isonomia por microrregião" na aba). Comparativo de Tarifas: `iso_micro` no build (tarifa total do
+  item no mês de referência, par do mesmo mês). Alavanca 38: grão e farelo pela ficha por microrregião. O
+  retroativo histórico (P&L 2021 a 2025) não tem microrregião e segue pela rota inteira.
 - `gerar_indice_videos.py` gera `09_Fotos/_indice_videos.csv` (diário de captura: vídeo →
   status/cliente/script). Rodar depois de minerar vídeos novos.
 - Regras de negócio que definem os números: `../06_Corporate_Memory/Regras_e_Decisoes_LogConsultOS.md`.

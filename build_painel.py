@@ -789,6 +789,56 @@ tf["med_pares"] = pd.Series(_pm)
 tf["min_pares"] = pd.Series(_pn)
 tf["max_pares"] = pd.Series(_px)
 tf["melhor_pagador"] = pd.Series(_pb)
+# GRÃO E FARELO POR MICRORREGIÃO (25/nov/2026, pedido do sócio): a isonomia de grão compara, além de
+# origem e destino, a microrregião do item. Para essas linhas os pares saem da Ficha de Fluxo 2026 (itens
+# atuais, tarifa total no mês de referência, líquida de PIS/COFINS): cada item do cliente contra os itens
+# dos OUTROS clientes na mesma origem, destino, produto e microrregião (um valor por cliente); a mediana
+# e o menor do cliente são a média sobre os itens dele que têm par. Sem par na microrregião: sem par.
+try:
+    _fx = q("""SELECT item, cliente, origem, destino, UPPER(TRIM(produto)) produto, COALESCE(microrregiao,'') micro, total, mes_ref
+               FROM ficha_fluxo_ref WHERE status='atual' AND total > 0""")
+except Exception:
+    _fx = pd.DataFrame(columns=["item", "cliente", "origem", "destino", "produto", "micro", "total", "mes_ref"])
+# grão muda de preço todo mês: o par é do mesmo mês de referência do item (micro + mês na chave)
+_fx["micro"] = _fx["micro"].astype(str).str.strip() + "|" + _fx["mes_ref"].astype(str)
+_fx["cliente"] = _fx["cliente"].map(canon)
+_fx = _fx[_fx["produto"].map(fam_pc).isin(["GRAOS", "FARELO"])].copy()
+_fx["liq"] = _fx["total"] * (1 - np.array([aliq_pc(c, p) for c, p in zip(_fx["cliente"], _fx["produto"])]))
+_fx_cm = _fx.groupby(["origem", "destino", "produto", "micro", "cliente"])["liq"].median().reset_index()
+_fx_ref = {k: g.set_index("cliente")["liq"] for k, g in _fx_cm.groupby(["origem", "destino", "produto", "micro"])}
+_fx_by = {k: g for k, g in _fx.groupby(["cliente", "origem", "destino", "produto"])}
+tf["iso_micro"] = False
+for _i, _r in tf[tf["produto"].astype(str).str.upper().map(fam_pc).isin(["GRAOS", "FARELO"])].iterrows():
+    _mine = _fx_by.get((_r["cliente"], _r["origem"], _r["destino"], str(_r["produto"]).upper().strip()))
+    if _mine is None or not len(_mine):
+        continue
+    _f = 1 / (1 - _r["aliq_pc"])
+    _meds, _mins, _peers, _best = [], [], set(), {}
+    for _m in _mine["micro"].unique():
+        _o = _fx_ref.get((_r["origem"], _r["destino"], str(_r["produto"]).upper().strip(), _m))
+        if _o is None:
+            continue
+        _o = _o.drop(_r["cliente"], errors="ignore")
+        if not len(_o):
+            continue
+        # diferença calculada dentro da ficha (item do cliente − par da microrregião), nos termos do cliente
+        for _t in _mine.loc[_mine["micro"] == _m, "total"]:
+            _meds.append(float(_t) - float(_o.median()) * _f)
+            _mins.append(float(_t) - float(_o.min()) * _f)
+        _peers |= set(_o.index)
+        _best[_o.idxmin()] = min(_best.get(_o.idxmin(), 1e9), float(_o.min()))
+    tf.at[_i, "iso_micro"] = True
+    if _meds:
+        # o par é expresso contra a tarifa da linha: total − diferença média dos itens com par
+        tf.at[_i, "med_pares"] = float(_r["total"]) - float(np.mean(_meds))
+        tf.at[_i, "min_pares"] = float(_r["total"]) - float(np.mean(_mins))
+        tf.at[_i, "n_cli_rota"] = 1 + len(_peers)
+        tf.at[_i, "melhor_pagador"] = min(_best, key=_best.get)
+    else:
+        tf.at[_i, "med_pares"] = np.nan
+        tf.at[_i, "min_pares"] = np.nan
+        tf.at[_i, "n_cli_rota"] = 1
+        tf.at[_i, "melhor_pagador"] = None
 tf["gap_med"] = np.where(tf["n_cli_rota"]>=2, tf["total"]-tf["med_pares"], np.nan)
 tf["gap_pct"] = np.where(tf["n_cli_rota"]>=2, (tf["total"]/tf["med_pares"]-1)*100, np.nan)
 # anualização: volume do trio cliente×O/D (canônico), rateado entre os produtos do trio
