@@ -86,7 +86,7 @@ def parse_multiflow(sheet, cliente, itens_abertura, vigencia_row=11):
 
 
 # ---------------------------------------------------------------- formato B: single-fluxo simples
-def parse_singleflow(sheet, cliente, abertura_start, itens_abertura, vol_row=None):
+def parse_singleflow(sheet, cliente, abertura_start, itens_abertura, vol_row=None, fluxo=None, cobertura=None):
     df = _raw(sheet)
     vig = None
     for r in range(3, 8):
@@ -95,7 +95,7 @@ def parse_singleflow(sheet, cliente, abertura_start, itens_abertura, vol_row=Non
             if isinstance(v, pd.Timestamp):
                 vig = v
     tarifa = {
-        "cliente": cliente, "fluxo": cliente,
+        "cliente": cliente, "fluxo": fluxo or cliente, "cobertura": cobertura,
         "tarifa_total": df.iat[3, 2], "teto": df.iat[4, 2], "frete": df.iat[5, 2],
         "acessorias": df.iat[6, 2], "ipoa": df.iat[7, 2],
         "distancia_km": None,
@@ -106,7 +106,7 @@ def parse_singleflow(sheet, cliente, abertura_start, itens_abertura, vol_row=Non
     for row_idx, item_nome in itens_abertura:
         v = df.iat[row_idx, 2]
         if pd.notna(v):
-            abertura.append({"cliente": cliente, "fluxo": cliente, "item": item_nome,
+            abertura.append({"cliente": cliente, "fluxo": fluxo or cliente, "item": item_nome,
                               "valor_rs_t": round(float(v), 2), "fonte": FONTE})
     return [tarifa], abertura
 
@@ -216,7 +216,12 @@ def main():
     t, a = parse_multiflow("Cenibra", "CENIBRA", ITENS_CENIBRA); tarifas += t; abertura += a
     t, a = parse_singleflow("Selecta", "SELECTA", 9, ITENS_SELECTA); tarifas += t; abertura += a
     t, a = parse_singleflow("Selecta retro", "SELECTA (retroativo)", 9, ITENS_SELECTA); tarifas += t; abertura += a
-    t, a = parse_singleflow("LD", "LD CELULOSE", 11, ITENS_LD, vol_row=9); tarifas += t; abertura += a
+    # LD CELULOSE (25/nov/2026, pedido do sócio): o fluxo curado da planilha se chamava "LD CELULOSE",
+    # sem rota no nome; a Ficha de Fluxo não o reconhecia e criava um 2º fluxo "CELULOSE EDC VAZ" para
+    # a MESMA rota (item 17429, vídeo F-LINK IMG_0523). Agora o curado já nasce com a rota e cita o item:
+    # connect_ficha_fluxo atualiza este fluxo pela ficha em vez de criar outro.
+    t, a = parse_singleflow("LD", "LD CELULOSE", 11, ITENS_LD, vol_row=9, fluxo="CELULOSE EDC VAZ",
+                            cobertura="planilha interna (item 17429, EDC→VAZ)"); tarifas += t; abertura += a
     t, a = parse_caramuru(); tarifas += t; abertura += a
     t, a = parse_nova_agri(); tarifas += t; abertura += a
     t, a = parse_agrex(); tarifas += t; abertura += a

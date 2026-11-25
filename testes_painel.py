@@ -122,6 +122,9 @@ def testes_banco():
             ok(n == 0, f"{n} item(ns) atuais com frete + DP acima do teto da rota inteira", aviso=True)
             n = q("SELECT COUNT(*) FROM ficha_fluxo_ref WHERE status='atual' AND teto_fonte LIKE 'ficha (a confirmar)%'")[0][0]
             ok(n <= 10, f"{n} item(ns) atuais com teto só da ficha nova (trecho, a confirmar)", aviso=True)
+        # LD CELULOSE: uma rota só, EDC→VAZ (fusão de 25/nov/2026)
+        ld = [r[0] for r in q("SELECT fluxo FROM projeto_fluxo_tarifas WHERE cliente='LD CELULOSE'")]
+        ok(ld == ["CELULOSE EDC VAZ"], f"LD CELULOSE com rotas {ld} (esperado só CELULOSE EDC VAZ)")
         MES = {m: i + 1 for i, m in enumerate(["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago",
                                                 "set", "out", "nov", "dez"])}
         div, rotas = [], {}

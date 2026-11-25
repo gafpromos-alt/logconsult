@@ -12,7 +12,8 @@ fix_consistencia_final.py. Lê ficha_fluxo_ref (gravada por add_ficha_fluxo.py).
    b) senão, se o nome do fluxo traz a rota ("PRODUTO ORIG DEST") e a ficha tem item atual do
       mesmo cliente nessa rota e produto, usa o de MAIOR tarifa total (regra do sócio de 27/jul:
       mesma rota, uma linha, a maior tarifa);
-   c) fluxo sem rota no nome (SELECTA, SELECTA (retroativo), LD CELULOSE) não é tocado.
+   c) fluxo sem rota no nome (SELECTA, SELECTA (retroativo)) não é tocado. LD CELULOSE já nasce
+      com a rota no nome (CELULOSE EDC VAZ, 25/nov/2026).
    Atualiza tarifa, frete, acessórias (com DP, convenção do banco), teto e a abertura
    (projeto_acessorias_abertas daquele fluxo é refeita a partir dos serviços da ficha).
 2. Rota da ficha sem fluxo no painel (inclusive os clientes que ainda não tinham painel):

@@ -24,7 +24,7 @@ import sqlite3
 BASE = pathlib.Path(__file__).resolve().parent
 DB = BASE / "logconsult.db"
 CLIENTE = "LD CELULOSE"
-FLUXO = "LD CELULOSE"
+FLUXO = "CELULOSE EDC VAZ"   # era "LD CELULOSE" até 25/nov/2026 (fundido com a rota da ficha)
 FONTE_PJF = "F-LINK Precos Contratuais (video IMG_0523) — vigencia mais recente"
 FONTE_PJA = "F-LINK Precos Contratuais (video IMG_0523) — abertura de manobra reajuste-a-reajuste"
 

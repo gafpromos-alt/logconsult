@@ -5253,7 +5253,7 @@ if(D.comparativo && D.comparativo.tarifas){
   // Retorna os tetos por trecho e o GANHO R$/ano de cada simulador (frete acima do teto × volume).
   function tetoRegGains(){
     const reg=TETO_REG[pcCli]; if(!reg) return null;
-    // varredura 24/nov/2026: lia o 1º fluxo do cliente ("LD CELULOSE", 330 kt fixos da planilha);
+    // varredura 24/nov/2026: lia o 1º fluxo do cliente (o curado da planilha, 330 kt fixos);
     // a rota real (EDC→VAZ) rodou 458 kt. Usa o fluxo de maior volume real dos últimos 12 meses.
     const _fl=pjDo(pcCli).filter(x=>!isRetro(x.fluxo));
     const f=_fl.map(x=>({x, v:volDefaultKtGanho(x)})).sort((a,b)=>b.v-a.v).map(o=>o.x)[0]||_fl[0];
