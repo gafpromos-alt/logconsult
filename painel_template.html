@@ -410,6 +410,16 @@ table th{font-weight:500;text-transform:none;letter-spacing:0;color:var(--mut2)}
 .prio-sel.p1{background:#1F7A36;color:#fff}.prio-sel.p2{background:#E8F5EC;color:#1F7A36}.prio-sel.p3{background:var(--seg);color:var(--ink)}
 .ini-aviso{font-size:12.5px;color:var(--mut);margin-left:6px}.ini-aviso a{color:#1F7A36;cursor:pointer;font-weight:500}
 details.ini-more{margin-top:16px}
+.ini-prio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:-6px 0 18px}
+.ini-pk{background:#fff;border:1px solid var(--hairline);border-radius:16px;padding:14px 18px;cursor:pointer;transition:border-color .15s}
+.ini-pk:hover{border-color:rgba(0,0,0,.18)}.ini-pk.on{border-color:#1F7A36;box-shadow:0 0 0 1px #1F7A36}
+.ini-pk .t{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mut);font-weight:500}
+.ini-pk .v{font-size:22px;font-weight:600;letter-spacing:-.02em;margin-top:8px;font-variant-numeric:tabular-nums}
+.ini-pk .v small{font-size:13px;font-weight:500;color:var(--mut2);letter-spacing:0}
+.ini-pk .d{font-size:12.5px;color:var(--mut2);margin-top:3px;font-variant-numeric:tabular-nums}
+.pb{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:7px;background:var(--seg);color:var(--ink)}
+.pb.p1{background:#1F7A36;color:#fff}.pb.p2{background:#E8F5EC;color:#1F7A36}
+@media (max-width:1100px){.ini-prio{grid-template-columns:1fr}}
 details.ini-more>summary{cursor:pointer;list-style:none;font-size:15px;font-weight:600;padding:14px 18px;background:#fff;border:1px solid var(--hairline);border-radius:16px}
 details.ini-more>summary::-webkit-details-marker{display:none}
 details.ini-more>summary::after{content:'›';float:right;color:var(--mut2);transition:transform .2s}
@@ -489,6 +499,7 @@ details.ini-more .panel{margin-top:12px}
   <!-- ============ INÍCIO: ganhos por cliente em três cenários de risco (nov/2026) ============ -->
   <section id="inicio" class="active">
     <div class="ini-hero" id="iniHero"></div>
+    <div class="ini-prio" id="iniPrio"></div>
     <div class="panel" style="padding:8px 4px 4px">
       <div class="ini-ctl" style="padding:10px 14px 0">
         <span class="seg" id="iniOrd"><span class="chip on" data-iord="medio">Médio risco</span><span class="chip" data-iord="retro">Retroativo</span><span class="chip" data-iord="baixo">Baixo risco</span><span class="chip" data-iord="alto">Alto risco</span></span>
@@ -5031,6 +5042,7 @@ if(D.comparativo && D.comparativo.tarifas){
       ganhoAcessCliente, fluxoVolKtGanho, seloRota, reajDoFluxo,
       volKtRota:(cli,o,d,prod)=>{ const v=pcUlt12Sum(pcVolLookup(cli,o,d,prod)); return v!=null?v/1000:0; },
       ganhoMensal, classeGrao, mensalFluxo:(f,sel)=>ganhoMensalFluxo(f,sel),
+      estado:(c)=>st(c),   // simulações salvas do cliente (usado pelo teste do Início)
       // aba Alavancas (23/nov/2026): grãos e farelo mês a mês com a MESMA janela de ganhoMensal
       volMensalRota:(cli,o,d,prod)=>volMensal12(pcVolLookup(cli,o,d,prod))||{},
       cliAtual:()=>pcCli, apresentacao:()=>pcPresent,
@@ -5240,6 +5252,7 @@ if(D.comparativo && D.comparativo.tarifas){
       </div>
     </div>`;
     wireTip('pcGanhosPotenciais');
+    if(window.INICIO_API&&window.INICIO_API.marcar) window.INICIO_API.marcar(pcCli);   // Início refaz a linha deste cliente
   }
 
   /* ================= ABA 4 — TETO REGULATÓRIO (multi-ferrovia, hoje só LD Celulose) =================
@@ -8842,11 +8855,23 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
           medio:r.ac.mod+r.iso.mod+r.regM, alto:r.ac.otm+r.iso.otm+r.regO,
           retroM:r.rt?r.rt.mod:0, retroO:r.rt?r.rt.otm:0, isoRetM:r.rt?r.rt.isoMod:0};
     }
+    // 25/nov/2026 (pedido do sócio: "Selecta e LD estão diferentes do painel cliente que simulamos"):
+    // o Início guardava o cálculo da abertura e não via a simulação feita depois no Painel do Cliente.
+    // Agora o Painel do Cliente marca o cliente (marcar) toda vez que redesenha os cartões, e o Início
+    // refaz só a linha dele antes de mostrar. Mesmas funções, mesmo estado: os números ficam iguais.
+    const sujos=new Set();
+    const temGanho=x=>x.medio>0||x.alto>0||x.baixo>0||x.baixoRet>0||x.retroM>0;
     function calc(){
-      if(linhas) return linhas;
-      linhas=clientes.map(linhaDe).filter(x=>x.medio>0||x.alto>0||x.baixo>0||x.baixoRet>0||x.retroM>0);
+      if(!linhas){ linhas=clientes.map(linhaDe).filter(temGanho); sujos.clear(); return linhas; }
+      if(sujos.size){
+        sujos.forEach(c=>{ const nova=linhaDe(c), i=linhas.findIndex(y=>y.c===c);
+          if(i>=0){ if(temGanho(nova)) linhas[i]=nova; else linhas.splice(i,1); }
+          else if(temGanho(nova)) linhas.push(nova); });
+        sujos.clear();
+      }
       return linhas;
     }
+    function marcar(c){ if(c) sujos.add(c); }
     // ---- cartão explicativo ao passar o mouse (qualquer elemento com data-hc) ----
     const HC={}; let hcN=0;
     const hcId=html=>{ const k='h'+(hcN++); HC[k]=html; return k; };
@@ -8885,6 +8910,18 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
         card('a','Alto risco',mi(T('alto')),'/ano','menor par e teses na ANTT',hcAlto);
       const chave={medio:'medio',baixo:'baixo',alto:'alto',retro:'retroM'}[ord];
       L0.forEach(x=>{ x.alvo=alvoSet.has(x.c); x.prio=prioMap[x.c]||''; });
+      // cartões por prioridade (25/nov/2026): soma dos clientes marcados P1, P2 e P3; clique filtra a tabela
+      const somaP=(arr,k)=>arr.reduce((s,x)=>s+(x[k]||0),0);
+      document.getElementById('iniPrio').innerHTML=['P1','P2','P3'].map(pp=>{
+        const g=L0.filter(x=>x.prio===pp), on=fil===pp?' on':'';
+        const nomes=g.map(x=>x.c).sort((a,b)=>a.localeCompare(b,'pt'));
+        const h=hcId(`<h4>${pp}: ${g.length} cliente(s)</h4>`+
+          L('Baixo risco, por ano', mi(somaP(g,'baixo')))+L('Baixo, recuperação única', mi(somaP(g,'baixoRet')))+
+          L('Médio risco, por ano', mi(somaP(g,'medio')))+L('Retroativo moderado, único', mi(somaP(g,'retroM')))+L('Alto risco, por ano', mi(somaP(g,'alto')))+
+          (nomes.length?`<p>${nomes.map(escAttr).join(', ')}</p>`:'<p>Nenhum cliente com esta prioridade. Marque na coluna Prioridade da tabela.</p>')+'<p>Clique para filtrar a tabela.</p>');
+        return `<div class="ini-pk${on}" data-pfil="${pp}" data-hc="${h}"><div class="t"><span class="pb ${pp.toLowerCase()}">${pp}</span>${g.length} cliente${g.length===1?'':'s'}</div>
+          <div class="v">${g.length?mi(somaP(g,'medio')):'R$ 0,0 mi'}<small> /ano, médio</small></div>
+          <div class="d">retroativo ${mi0(somaP(g,'retroM'))} · alto ${mi0(somaP(g,'alto'))} · baixo ${mi0(somaP(g,'baixo'))} · R$ mi</div></div>`; }).join('');
       const passa=x=>fil==='todos'||(fil==='alvo'&&x.alvo)||(fil==='venc'&&x.venc12>0)||(fil==='semprio'&&!x.prio)||(/^P[123]$/.test(fil)&&x.prio===fil);
       const rows=L0.filter(passa)
         .sort((a,b)=>(b[chave]+(ord==='baixo'?b.baixoRet:0))-(a[chave]+(ord==='baixo'?a.baixoRet:0)));
@@ -8900,6 +8937,9 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
       const tot=k=>rows.reduce((s,x)=>s+(x[k]||0),0);
       document.getElementById('iniCount').textContent=`${rows.length} clientes · médio ${mi0(tot('medio'))} · retroativo ${mi0(tot('retroM'))} · R$ mi`;
     }
+    document.getElementById('iniPrio').addEventListener('click',e=>{ const k=e.target.closest('[data-pfil]'); if(!k) return;
+      const alvo=fil===k.dataset.pfil?'todos':k.dataset.pfil;
+      const chip=document.querySelector(`[data-ifil="${alvo}"]`); if(chip) chip.click(); });
     function alvoMudou(){ const a=document.getElementById('iniAviso'); if(a) a.hidden=false; render(); }
     document.getElementById('iniRecarregar').onclick=()=>location.reload();
     document.querySelectorAll('[data-iord]').forEach(c=>c.onclick=function(){ document.querySelectorAll('[data-iord]').forEach(x=>x.classList.remove('on')); this.classList.add('on'); ord=this.dataset.iord; render(); });
@@ -8914,7 +8954,7 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
     // ---- PÁGINA DO CLIENTE ----
     const irPara=(tab, ids, c)=>{ activateTab(tab, true); (ids||[]).forEach(id=>{ const el=document.getElementById(id); if(el){ el.value=c; el.dispatchEvent(new Event('input',{bubbles:true})); } }); };
     function abrirCliente(c, push){
-      const x=(linhas||[]).find(y=>y.c===c)||linhaDe(c);
+      const x=(linhas?calc():[]).find(y=>y.c===c)||linhaDe(c);
       activateTab('clientepg', false, c);
       if(push) history.pushState(null,'','#cliente/'+encodeURIComponent(c));
       setCrumbs([{t:'Início',href:'#inicio'},{t:'Clientes'},{t:c}]);
@@ -8983,10 +9023,10 @@ ${reaj?`<h2>Evolução contratual (primeira e última vigência registradas)</h2
       gs.onblur=()=>setTimeout(()=>{ gp.hidden=true; },150);
     }
     // a conta dos 73 clientes leva alguns segundos: a página desenha primeiro, o Início vem logo depois
-    function renderDepois(){ if(linhas) return render();
+    function renderDepois(){ if(linhas){ calc(); return render(); }
       document.getElementById('iniHero').innerHTML='<div class="ini-k" style="grid-column:1/-1"><div class="t">Calculando os ganhos de cada cliente…</div></div>';
       setTimeout(render, 30); }
-    window.INICIO_API={calc, render, renderDepois, abrirCliente, alvoMudou};
+    window.INICIO_API={calc, render, renderDepois, abrirCliente, alvoMudou, marcar};
   }catch(e){ console.error('Início:', e); }
 })();
 

@@ -90,6 +90,10 @@ esses arquivos.
   vale o valor do Painel do Cliente (`BP_PC.valor`, `bpAplicaPC`, chamado no fim do script), uma vez por
   rota e produto ("já contada"); um só par = selo e risco alto por padrão (`bpRiscoO`); projeção mensal
   segue a série de grãos e farelo (`PC_API.mensalFluxo`).
+- **Início × Painel do Cliente (25/nov):** o Início refaz a linha do cliente sempre que o Painel do Cliente
+  redesenha os cartões (`INICIO_API.marcar`, chamado em `pcRenderGanhos`), então simulação salva aparece nos
+  dois iguais (teste `segueSim`). Cartões P1, P2 e P3 (`#iniPrio`) somam os clientes de cada prioridade e
+  filtram a tabela no clique. LD Celulose tem uma rota só, CELULOSE EDC VAZ (o curado nasce com a rota).
 - `gerar_indice_videos.py` gera `09_Fotos/_indice_videos.csv` (diário de captura: vídeo →
   status/cliente/script). Rodar depois de minerar vídeos novos.
 - Regras de negócio que definem os números: `../06_Corporate_Memory/Regras_e_Decisoes_LogConsultOS.md`.

@@ -99,13 +99,33 @@ const coleta = `
       const naoNum = L.filter(x => ['baixo','baixoRet','medio','alto','retroM'].some(k => !isFinite(x[k]))).length;
       const difAc = L.filter(x => Math.abs(x.acM - ganhoAcessCliente(x.c).mod) > 1).map(x => x.c);
       let abriu = 0; L.slice(0, 5).forEach(x => { if (window.INICIO_API.abrirCliente(x.c, false)) abriu++; });
+      // Início acompanha a simulação do Painel do Cliente (25/nov/2026): simula manobra zero num fluxo
+      // de um cliente com ganho de acessória e confere que o Início muda junto com o card
+      let segueSim = null;
+      try {
+        const alvo = L.find(x => x.acM > 0);
+        if (alvo && API.estado) {
+          const antes = window.INICIO_API.calc().find(x => x.c === alvo.c).acM;
+          const f = API.pjDo(alvo.c).filter(x => !API.isRetro(x.fluxo) && (API.fluxoVolKtGanho(x) || 0) > 0
+            && API.itensDe(x).some(i => /MANOBRA/i.test(i.item) && i.valor_rs_t > 1))[0];
+          const sx = API.estado(alvo.c);
+          const its = API.itensDe(f).filter(i => /MANOBRA/i.test(i.item));
+          sx.teto[API.fkey(f)] = {items: Object.fromEntries(its.map(i => [i.item, 0]))};
+          window.INICIO_API.marcar(alvo.c);
+          const depois = window.INICIO_API.calc().find(x => x.c === alvo.c);
+          const card = API.ganhoAcessCliente(alvo.c).mod;
+          segueSim = {cliente: alvo.c, fluxo: f.fluxo, antes, depois: depois ? depois.acM : null, card,
+            igual: depois ? Math.abs(depois.acM - card) < 1 && depois.acM > antes + 1 : false};
+          delete sx.teto[API.fkey(f)]; window.INICIO_API.marcar(alvo.c); window.INICIO_API.calc();
+        }
+      } catch (e) { segueSim = {erro: String(e.message || e)}; }
       // tabela (25/nov/2026): alvo + prioridade, retroativo logo depois do médio
       window.INICIO_API.render();
       const th = document.getElementById('iniTbl').innerHTML;
       const iM = th.indexOf('> Médio</th>'), iR = th.indexOf('> Retroativo</th>'), iA = th.indexOf('> Alto</th>');
       const tabela = {selPrio: (th.match(/class="prio-sel/g) || []).length, ckAlvo: (th.match(/data-alvo=/g) || []).length,
-        ordemOk: iM > 0 && iR > iM && iA > iR};
-      out.inicio = {ok: true, n: L.length, naoNum, difAc, abriu, tabela,
+        ordemOk: iM > 0 && iR > iM && iA > iR, cardsPrio: (document.getElementById('iniPrio').innerHTML.match(/data-pfil=/g) || []).length};
+      out.inicio = {ok: true, n: L.length, naoNum, difAc, abriu, tabela, segueSim,
         medio: L.reduce((s, x) => s + x.medio, 0), alto: L.reduce((s, x) => s + x.alto, 0), baixo: L.reduce((s, x) => s + x.baixo, 0)};
     } catch (e) { out.inicio = {ok: false, erro: String(e.message || e)}; }
   }
