@@ -2483,6 +2483,7 @@ if(D.comparativo && D.comparativo.tarifas){
     .sort((a,b)=>(a==='SELECTA'?-1:b==='SELECTA'?1:a.localeCompare(b)));
   let pcCli=(_pcLast && pcClientesTodos.includes(_pcLast)) ? _pcLast : (pcPrioridadesList[0]||pcClientesTodos[0]);
   let pcTab='teto', pcRotaSel={}, pcTetoRota={}, pcRetroRota={};
+  var pcIsoMicro={};   // microrregião escolhida na visão por microrregião da aba Isonomia
   // rota (origem→destino · produto) de um fluxo do Teto. Fluxos multi-token ("PRODUTO ORIG DEST")
   // dão a rota direto; fluxos nomeados só pelo cliente (AGREX/SELECTA/...) caem na rota principal
   // (rotaDo, do cadastro de tarifas). Serve pra rotular cada rota e casar refs/histórico por fluxo.
@@ -4609,8 +4610,7 @@ if(D.comparativo && D.comparativo.tarifas){
   // distinto por origem.
   const isoGrupoKey=r=>origGrupo(r.origem)+'|'+r.destino+'|'+pcProdIso(r.produto);
 
-  function pcRenderIso(){ _pcRenderIsoBase(); try{ pcIsoMicroBloco(); }catch(e){ console.error('isonomia por microrregião:', e); } }
-  function _pcRenderIsoBase(){
+  function pcRenderIso(){
     const ct=ctDo(pcCli), el=document.getElementById('pcTabIso');
     const rotas=ct.filter(r=>r.n_cli_rota>=2||sazDaRota(r).length);
     const semPar=ct.filter(r=>!rotas.includes(r));
@@ -4624,8 +4624,11 @@ if(D.comparativo && D.comparativo.tarifas){
     const saz=sazDaRota(rSel);
     const ehGrao=GRAOS_RE.test(String(rSel.produto||''));
     const temMensal=saz.some(r=>canonPC(r.cliente)===pcCli);
-    let modo=pcIsoModo[kc]||((ehGrao&&temMensal)?'mensal':'contrato');
+    // grão e farelo com item na ficha: a visão padrão é por microrregião (regra do sócio, 25/nov/2026)
+    const temMicro=!!(classeGrao(rSel.produto)&&isoMicroRota(pcCli, rSel.origem, rSel.destino, rSel.produto));
+    let modo=pcIsoModo[kc]||(temMicro?'micro':(ehGrao&&temMensal)?'mensal':'contrato');
     if(modo==='mensal'&&!temMensal) modo='contrato';
+    if(modo==='micro'&&!temMicro) modo=(ehGrao&&temMensal)?'mensal':'contrato';
     pcIsoModo[kc]=modo;
 
     // resolve ano/mês antecipado — precisa tanto pro select da linha de filtros quanto pra isoMensalHtml
@@ -4647,12 +4650,20 @@ if(D.comparativo && D.comparativo.tarifas){
     const modoSelHtml=`<select data-pcisomodo="1" style="font-size:12px">
         <option value="contrato"${modo==='contrato'?' selected':''}>Contratos vigentes</option>
         <option value="mensal"${modo==='mensal'?' selected':''}${temMensal?'':' disabled'}>Mês a mês (preço realizado)</option>
+        ${temMicro?`<option value="micro"${modo==='micro'?' selected':''}>Por microrregião (ficha 2026)</option>`:''}
       </select>`;
+    const microSel=modo==='micro'?(pcIsoMicro[kc]||''):'';
+    const microSelHtml=modo==='micro'?(()=>{ const g=isoMicroRota(pcCli, rSel.origem, rSel.destino, rSel.produto), meus=new Set(g.micros.map(m=>m.chave));
+      const orig=microsDaOrigem(rSel.origem);
+      return `<select data-pcisomicro="1" style="font-size:12px"><option value="">Todas do cliente (${g.micros.length})</option>
+        <optgroup label="Do cliente nesta rota">${g.micros.map(m=>`<option value="${escAttr(m.chave)}"${m.chave===microSel?' selected':''}>${escAttr(m.micro)}${m.pares?'':' · sem par'}</option>`).join('')}</optgroup>
+        <optgroup label="Outras que embarcam por ${escAttr(rSel.origem)}">${orig.filter(m=>!meus.has(m.micro)).map(m=>`<option value="${escAttr(m.micro)}"${m.micro===microSel?' selected':''}>${escAttr(m.micro)} (${m.nCli} cliente${m.nCli===1?'':'s'})</option>`).join('')}</optgroup></select>`; })():'';
     const fgroup=(lbl,sel)=>`<span class="pc-fgroup"><span class="pc-lbl">${lbl}</span> ${sel}</span>`;
     const filtrosLine=`<div class="controls iso-filtros" style="margin-bottom:12px;flex-wrap:wrap">
         ${fgroup('Rota',rotaSelHtml)}
         ${fgroup('Visão',modoSelHtml)}
         ${modo==='mensal'?`<span class="pc-fgroup-pair">${fgroup('Ano',anoSelHtml)}${fgroup('Mês',mesSelHtml)}</span>`:''}
+        ${modo==='micro'?fgroup('Microrregião',microSelHtml):''}
       </div>`;
     // filtro de PERÍODO (Ano/Mês multi-select) do resumo — pedido do usuário (20/jul/2026):
     // grãos têm tarifa/acessória que varia mês a mês, mesmo filtro (mesmo estado pcVolAnos/
@@ -4706,9 +4717,9 @@ if(D.comparativo && D.comparativo.tarifas){
 
     el.innerHTML=resumoIso+`<div class="panel" id="pcIsoDetalhe">
       <h2>Isonomia tarifária — ${escAttr(pcCli)}</h2>
-      <div class="desc">${ehGrao?'Cliente de grãos/fertilizantes: a comparação-mãe é <b>mês a mês</b> (preço realizado no P&L), porque o preço desses produtos é sazonal — comparar contrato contra contrato mistura meses diferentes. A visão de contratos segue disponível.':'Comparação primária pelos contratos vigentes; quando existe preço mensal realizado no P&L, a visão mês a mês fica disponível também.'}</div>
+      <div class="desc">${modo==='micro'?'Grão e farelo: a isonomia compara a mesma origem, destino, produto <b>e microrregião</b> do item (Ficha de Fluxo 2026), que é a base do ganho nos cartões. As visões mês a mês (P&L, rota inteira) e de contratos seguem no seletor como contexto.':ehGrao?'Cliente de grãos/fertilizantes: a comparação-mãe é <b>mês a mês</b> (preço realizado no P&L), porque o preço desses produtos é sazonal — comparar contrato contra contrato mistura meses diferentes. A visão de contratos segue disponível.':'Comparação primária pelos contratos vigentes; quando existe preço mensal realizado no P&L, a visão mês a mês fica disponível também.'}</div>
       ${filtrosLine}
-      ${modo==='mensal'?isoMensalHtml(rSel,saz,ano,mes):isoContratoHtml(rSel)}
+      ${modo==='micro'?isoMicroHtml(rSel, microSel):modo==='mensal'?isoMensalHtml(rSel,saz,ano,mes):isoContratoHtml(rSel)}
       ${semPar.length?`<div class="note" style="margin-top:8px">Rotas sem nenhum par: ${semPar.map(r=>r.origem+'→'+r.destino+' ('+r.produto+')').join(' · ')}.</div>`:''}
     </div>`;
     { const wA=el.querySelector('[data-pcvolano]'), wM=el.querySelector('[data-pcvolmes]');
@@ -4716,7 +4727,8 @@ if(D.comparativo && D.comparativo.tarifas){
         msA.node.addEventListener('change',()=>{ pcVolAnos=new Set([...msA.get()]); pcRenderIso(); pcRenderGanhos(); }); }
       if(wM){ const msM=makeMultiStr('Mês', PC_MESES, [...pcVolMeses]); wM.appendChild(msM.node);
         msM.node.addEventListener('change',()=>{ pcVolMeses=new Set([...msM.get()]); pcRenderIso(); pcRenderGanhos(); }); } }
-    if(modo==='mensal') pcRecalcIsoMensal(); else pcRecalcIso();
+    if(modo==='mensal') pcRecalcIsoMensal(); else if(modo!=='micro') pcRecalcIso();
+    el.querySelectorAll('[data-pcisomicrogo]').forEach(tr=>tr.onclick=()=>{ pcIsoMicro[kc]=tr.dataset.pcisomicrogo; pcRenderIso(); });
   }
 
   // ---------- visão CONTRATOS (a mesma de antes, agora como função) ----------
@@ -5102,7 +5114,7 @@ if(D.comparativo && D.comparativo.tarifas){
     const res=_isoMicroRota(cli, o, d, produto); _isoMiCache.set(ck,res); return res;
   }
   function _isoMicroRota(cli, o, d, produto){
-    const AL=(D.ficha&&D.ficha.aliq_item)||{};
+    const AL=(D.ficha&&D.ficha.aliq_item)||{}, SV=(D.ficha&&D.ficha.serie_svc)||{};
     const todos=_isoMiIndex()[o+'|'+d+'|'+pcProdIso(produto)]||[];
     const meus=todos.filter(x=>x.c===cli&&x.status==='atual');
     if(!meus.length) return null;
@@ -5115,41 +5127,67 @@ if(D.comparativo && D.comparativo.tarifas){
         (porCli[x.c]=porCli[x.c]||[]).push(r[4]*(1-(AL[x.item]||0))); });
       const v=Object.values(porCli).map(mediana2);
       return refCache[k]=v.length?{med:mediana2(v), min:Math.min(...v), n:v.length}:null; };
+    // 25/nov/2026: mês de preço = o próprio mês de embarque quando o item do cliente E os pares da microrregião
+    // têm preço nele; senão, o ÚLTIMO mês em que os dois têm preço (o preço atual). Antes exigia o mesmo mês
+    // exato e a Agrex PPN→QPM (embarca de fevereiro a junho; pares só com preço de agosto em diante) saía
+    // "sem par". O mês mais próximo foi descartado: pegava agosto, mês de transição em que a Agrex pagava
+    // R$ 176/t contra R$ 81 de setembro em diante, e só um par tinha preço.
+    const mesesComuns=x=>(SV[x.item]||[]).filter(r=>r[4]>0&&refMicro(x.micro, r[0])).map(r=>r[0]);
     let mod=0, otm=0, volT=0, nMes=0; const porMicro={};
     for(let m=1;m<=12;m++){
       const vol=vm[m]||0; if(!(vol>0)) continue; nMes++; volT+=vol;
       let gMed=0, gMin=0;
-      meus.forEach(x=>{ const r=_isoMiLinha(x.item, m); if(!r||!(r[4]>0)) return;
-        const a=AL[x.item]||0, ref=refMicro(x.micro, r[0]);
-        const pm=porMicro[x.micro]=porMicro[x.micro]||{micro:x.micro, itens:new Set(), pares:0, base:[], med:[], min:[]};
-        pm.itens.add(x.item); pm.base.push(r[4]);
-        if(!ref) return;
-        pm.pares=Math.max(pm.pares, ref.n); pm.med.push(ref.med/(1-a)); pm.min.push(ref.min/(1-a));
-        gMed+=Math.max(0, r[4]-ref.med/(1-a)); gMin+=Math.max(0, r[4]-ref.min/(1-a)); });
+      meus.forEach(x=>{
+        const a=AL[x.item]||0;
+        const pm=porMicro[x.micro]=porMicro[x.micro]||{micro:x.micro, itens:new Set(), pares:0, base:[], med:[], min:[], gMod:0, gOtm:0, vol:0, meses:[]};
+        pm.itens.add(x.item);
+        const cm=mesesComuns(x);
+        if(!cm.length){ const r0=_isoMiLinha(x.item, m); if(r0&&r0[4]>0) pm.base.push(r0[4]);
+          pm.meses.push({m, vol:vol/meus.length, mp:null}); return; }
+        const mp=cm.includes(m)?m:Math.max(...cm);
+        const r=_isoMiExato(x.item, mp), ref=refMicro(x.micro, mp);
+        const med=ref.med/(1-a), mn=ref.min/(1-a), dMed=Math.max(0, r[4]-med), dMin=Math.max(0, r[4]-mn);
+        pm.pares=Math.max(pm.pares, ref.n); pm.base.push(r[4]); pm.med.push(med); pm.min.push(mn);
+        pm.gMod+=dMed/meus.length*vol; pm.gOtm+=dMin/meus.length*vol; pm.vol+=vol/meus.length;
+        pm.meses.push({m, vol:vol/meus.length, mp, base:r[4], med, min:mn, n:ref.n, dMed});
+        gMed+=dMed; gMin+=dMin; });
       mod+=gMed/meus.length*vol; otm+=gMin/meus.length*vol;
     }
     const avg=a=>a.length?a.reduce((p,q)=>p+q,0)/a.length:null;
-    const micros=Object.values(porMicro).map(pm=>({micro:pm.micro||'(sem microrregião)', nItens:pm.itens.size, pares:pm.pares,
-      base:avg(pm.base), med:avg(pm.med), min:avg(pm.min)})).sort((a,b)=>b.nItens-a.nItens);
+    const micros=Object.values(porMicro).map(pm=>({micro:pm.micro||'(sem microrregião)', chave:pm.micro, nItens:pm.itens.size, pares:pm.pares,
+      base:avg(pm.base), med:avg(pm.med), min:avg(pm.min), gMod:pm.gMod, gOtm:pm.gOtm, meses:pm.meses})).sort((a,b)=>b.gMod-a.gMod||b.nItens-a.nItens);
     return {otm, mod, volKt:volT/1000, deltaOtm:volT>0?otm/volT:0, deltaMod:volT>0?mod/volT:0,
       modo:`ficha 2026 por microrregião, últimos 12 meses da base (${nMes} ${nMes===1?'mês':'meses'} com embarque)`, n:nMes,
       micro:true, nItens:meus.length, micros};
   }
-  function pcIsoMicroBloco(){
-    const el=document.getElementById('pcTabIso'); if(!el) return;
-    const ct=ctDo(pcCli), rSel=ct.find(r=>rkey(r)===pcRotaSel[pcCli]); if(!rSel||!classeGrao(rSel.produto)) return;
+  // microrregiões que embarcam pela origem (associação origem × microrregião, Ficha 2026, todos os clientes)
+  function microsDaOrigem(o){ const set={}; ((D.ficha&&D.ficha.itens)||[]).forEach(x=>{ if(x.origem===o&&x.microrregiao&&x.status==='atual'){ set[x.microrregiao]=(set[x.microrregiao]||new Set()).add(canonPC(x.cliente)); } });
+    return Object.entries(set).map(([mi,cs])=>({micro:mi, nCli:cs.size})).sort((a,b)=>b.nCli-a.nCli||a.micro.localeCompare(b.micro)); }
+  // visão "Por microrregião" da aba Isonomia (substitui o bloco solto de 25/nov)
+  function isoMicroHtml(rSel, microSel){
     const g=isoMicroRota(pcCli, rSel.origem, rSel.destino, rSel.produto);
     const n2=v=>v==null||!isFinite(v)?'n/d':v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-    const html=!g?`<div class="panel"><h2>Isonomia por microrregião</h2><div class="desc">Nenhum item atual deste cliente na Ficha de Fluxo 2026 para ${escAttr(rSel.origem)}→${escAttr(rSel.destino)} ${escAttr(rSel.produto)}: sem a microrregião do item, a isonomia desta rota usa a comparação pela rota inteira abaixo.</div></div>`
-      :`<div class="panel"><h2>Isonomia por microrregião · ${escAttr(rSel.origem)}→${escAttr(rSel.destino)} ${escAttr(rSel.produto)}</h2>
-      <div class="desc">Base do ganho desta rota nos cartões: frete + DP de cada item do cliente contra os itens dos outros clientes na mesma origem, destino, produto e microrregião, mês a mês (Ficha de Fluxo 2026), líquido de PIS/COFINS. Média dos ${g.nItens} item(ns) do cliente vezes o volume do mês. Valores abaixo: médias dos meses da janela.</div>
-      <div class="kpis" style="margin:10px 0"><div class="kpi"><div class="lbl">Moderado (mediana na microrregião)</div><div class="val">${BRLmi(g.mod)}<small>/ano · R$ ${n2(g.deltaMod)}/t</small></div></div>
-        <div class="kpi"><div class="lbl">Otimista (menor na microrregião)</div><div class="val">${BRLmi(g.otm)}<small>/ano · R$ ${n2(g.deltaOtm)}/t</small></div></div>
-        <div class="kpi"><div class="lbl">Volume</div><div class="val">${N1(g.volKt)}<small> kt · ${g.n} meses</small></div></div></div>
-      <div class="tbl-wrap"><table><thead><tr><th>Microrregião</th><th class="num">Itens do cliente</th><th class="num">Clientes par</th><th class="num">Frete + DP do cliente R$/t</th><th class="num">Mediana dos pares R$/t</th><th class="num">Menor par R$/t</th></tr></thead><tbody>${
-        g.micros.map(m=>`<tr><td><b>${escAttr(m.micro)}</b></td><td class="num">${m.nItens}</td><td class="num">${m.pares||'<span class="muted">sem par</span>'}</td><td class="num">${n2(m.base)}</td><td class="num">${n2(m.med)}</td><td class="num">${n2(m.min)}</td></tr>`).join('')}</tbody></table></div>
-      <div class="desc" style="margin-top:6px">A comparação mensal pela rota inteira, a partir do P&L, continua abaixo como contexto; ela não separa microrregião.</div></div>`;
-    el.insertAdjacentHTML('afterbegin', html);
+    if(!g) return `<div class="desc">Nenhum item atual deste cliente na Ficha de Fluxo 2026 para esta rota: sem microrregião, use a visão mês a mês.</div>`;
+    const doCli=new Set(g.micros.map(m=>m.chave));
+    const orig=microsDaOrigem(rSel.origem);
+    const kpis=`<div class="kpis" style="margin:4px 0 12px"><div class="kpi hl"><div class="lbl">Moderado (mediana na microrregião)</div><div class="val">${BRLmi(g.mod)}<small>/ano · R$ ${n2(g.deltaMod)}/t</small></div></div>
+      <div class="kpi hl"><div class="lbl">Otimista (menor na microrregião)</div><div class="val">${BRLmi(g.otm)}<small>/ano · R$ ${n2(g.deltaOtm)}/t</small></div></div>
+      <div class="kpi"><div class="lbl">Volume da rota</div><div class="val">${N1(g.volKt)}<small> kt · ${g.n} meses com embarque</small></div></div>
+      <div class="kpi"><div class="lbl">Microrregiões</div><div class="val">${g.micros.length}<small> do cliente · ${orig.length} embarcam por ${escAttr(rSel.origem)}</small></div></div></div>`;
+    if(!microSel){
+      return kpis+`<div class="tbl-wrap"><table><thead><tr><th>Microrregião</th><th class="num">Itens do cliente</th><th class="num">Clientes par</th><th class="num">Cliente R$/t</th><th class="num">Mediana dos pares</th><th class="num">Menor par</th><th class="num">Moderado R$/ano</th><th class="num">Otimista R$/ano</th></tr></thead><tbody>${
+        g.micros.map(m=>`<tr data-pcisomicrogo="${escAttr(m.chave)}" style="cursor:pointer"><td><b>${escAttr(m.micro)}</b></td><td class="num">${m.nItens}</td><td class="num">${m.pares||'<span class="muted">sem par</span>'}</td><td class="num">${n2(m.base)}</td><td class="num">${n2(m.med)}</td><td class="num">${n2(m.min)}</td><td class="num">${m.gMod>0?BRL0(m.gMod):'zero'}</td><td class="num"><b>${m.gOtm>0?BRL0(m.gOtm):'zero'}</b></td></tr>`).join('')}</tbody></table></div>
+        <div class="desc" style="margin-top:6px">Frete + DP (Ficha 2026) de cada item contra os itens dos outros clientes na mesma origem, destino, produto e microrregião, líquido de PIS/COFINS, no mesmo mês do embarque ou, sem preço dos dois nesse mês, no último mês em que ambos têm preço (preço atual). Médias dos meses com embarque. Clique numa microrregião para ver mês a mês.</div>
+        <div class="desc">Microrregiões que embarcam por ${escAttr(rSel.origem)} (todos os clientes): ${orig.map(m=>`${escAttr(m.micro)} (${m.nCli})${doCli.has(m.micro)?' ●':''}`).join(' · ')}. ● = tem item deste cliente nesta rota.</div>`;
+    }
+    const m=g.micros.find(x=>x.chave===microSel);
+    if(!m) return kpis+`<div class="desc">Este cliente não tem item atual em ${escAttr(microSel)} nesta rota. Microrregiões dele: ${g.micros.map(x=>escAttr(x.micro)).join(', ')}.</div>`;
+    const porMes={}; m.meses.forEach(r=>{ const q=porMes[r.m]=porMes[r.m]||{m:r.m, vol:0, base:[], med:[], min:[], n:0, mp:new Set(), dMed:[]}; q.vol+=r.vol; if(r.mp){ q.mp.add(r.mp); q.base.push(r.base); q.med.push(r.med); q.min.push(r.min); q.n=Math.max(q.n,r.n); q.dMed.push(r.dMed); } });
+    const avg=a=>a.length?a.reduce((p,q)=>p+q,0)/a.length:null;
+    return kpis+`<h3 style="font-size:14px;margin:4px 0 6px">${escAttr(m.micro)}: ${m.nItens} item(ns) do cliente, ${m.pares} cliente(s) par · moderado ${BRLmi(m.gMod)}, otimista ${BRLmi(m.gOtm)} por ano</h3>
+      <div class="tbl-wrap"><table><thead><tr><th>Mês de embarque</th><th class="num">Volume kt</th><th>Mês de preço</th><th class="num">Cliente R$/t</th><th class="num">Mediana dos pares</th><th class="num">Menor par</th><th class="num">Pares</th><th class="num">Acima da mediana R$/t</th></tr></thead><tbody>${
+      Object.values(porMes).sort((a,b)=>a.m-b.m).map(q=>`<tr><td>${MESN[q.m-1]}</td><td class="num">${N1(q.vol/1000)}</td><td>${q.mp.size?[...q.mp].map(x=>MESN[x-1]+'/26').join(', '):'<span class="muted">sem par</span>'}</td><td class="num">${n2(avg(q.base))}</td><td class="num">${n2(avg(q.med))}</td><td class="num">${n2(avg(q.min))}</td><td class="num">${q.n||''}</td><td class="num"><b>${n2(avg(q.dMed))}</b></td></tr>`).join('')}</tbody></table></div>
+      <div class="desc" style="margin-top:6px">Volume do mês repartido igual entre os itens do cliente na rota. Mês de preço = o próprio mês do embarque quando o cliente e os pares têm preço nele na Ficha 2026; senão, o último mês em que os dois têm preço (preço atual).</div>`;
   }
   function ganhoRotaIso(rSel){
     const ownAll=sazDaRota(rSel).filter(r=>canonPC(r.cliente)===pcCli).sort((a,b)=>(a.ano*12+a.mes)-(b.ano*12+b.mes));
@@ -5606,6 +5644,9 @@ if(D.comparativo && D.comparativo.tarifas){
     }
     else if(t.dataset.pcrota){
       pcRotaSel[pcCli]=t.value; pcRenderIso(); pcChips();
+    }
+    else if(t.dataset.pcisomicro!==undefined&&t.matches&&t.matches('[data-pcisomicro]')){
+      pcIsoMicro[pcCli+'|'+pcRotaSel[pcCli]]=t.value; pcRenderIso();
     }
     else if(t.dataset.pcisomodo){
       pcIsoModo[pcCli+'|'+pcRotaSel[pcCli]]=t.value; pcRenderIso();

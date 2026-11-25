@@ -103,7 +103,9 @@ esses arquivos.
 - **Isonomia de grão e farelo por MICRORREGIÃO (25/nov, regra do sócio):** par = outro cliente na mesma
   origem, destino, produto E microrregião do item (Ficha 2026), no mesmo mês de preço, líquido de PIS/COFINS.
   Painel do Cliente: `isoMicroRota` (frete + DP mês a mês, média dos itens do cliente × volume do mês; sem par =
-  zero; bloco "Isonomia por microrregião" na aba). Comparativo de Tarifas: `iso_micro` no build (tarifa total do
+  zero; visão "Por microrregião", padrão para grão na aba Isonomia, com filtro de microrregião e a associação
+  origem × microrregião, `isoMicroHtml`/`microsDaOrigem`). Mês de preço = o do embarque se cliente e pares têm
+  preço nele; senão o último mês em comum (nunca o "mais próximo", que pegava mês de transição). Comparativo de Tarifas: `iso_micro` no build (tarifa total do
   item no mês de referência, par do mesmo mês). Alavanca 38: grão e farelo pela ficha por microrregião. O
   retroativo histórico (P&L 2021 a 2025) não tem microrregião e segue pela rota inteira.
 - `gerar_indice_videos.py` gera `09_Fotos/_indice_videos.csv` (diário de captura: vídeo →
