@@ -94,6 +94,11 @@ esses arquivos.
   redesenha os cartões (`INICIO_API.marcar`, chamado em `pcRenderGanhos`), então simulação salva aparece nos
   dois iguais (teste `segueSim`). Cartões P1, P2 e P3 (`#iniPrio`) somam os clientes de cada prioridade e
   filtram a tabela no clique. LD Celulose tem uma rota só, CELULOSE EDC VAZ (o curado nasce com a rota).
+- **Aba Porto do Painel do Cliente (25/nov):** aparece para cliente com receita de porto no P&L (`portoDo`).
+  Preço = receita ÷ volume (realizado, 2024 em diante, `porto_servicos.mensal`), bruto e líquido; pares no
+  mesmo terminal e produto (anonimizados no modo apresentação); referências públicas em
+  `precos_portos_referencia` (`add_porto_referencias.py`, curadas com fonte, data e tipo; em Santos só a
+  lista do próprio TIPLAM é publicada). O ganho da aba é indicação: fora dos cartões e do Início.
 - `gerar_indice_videos.py` gera `09_Fotos/_indice_videos.csv` (diário de captura: vídeo →
   status/cliente/script). Rodar depois de minerar vídeos novos.
 - Regras de negócio que definem os números: `../06_Corporate_Memory/Regras_e_Decisoes_LogConsultOS.md`.

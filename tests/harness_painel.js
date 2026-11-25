@@ -129,6 +129,17 @@ const coleta = `
         medio: L.reduce((s, x) => s + x.medio, 0), alto: L.reduce((s, x) => s + x.alto, 0), baixo: L.reduce((s, x) => s + x.baixo, 0)};
     } catch (e) { out.inicio = {ok: false, erro: String(e.message || e)}; }
   }
+  // aba Porto do Painel do Cliente (25/nov/2026): Mosaic no TIPLAM com os três produtos e as referências
+  out.porto = {ok: false};
+  try {
+    if (window.PORTO_API && API) {
+      API.abrirPainel('MOSAIC', 'porto');
+      const h = document.getElementById('pcTabPorto').innerHTML;
+      out.porto = {ok: true, temAba: window.PORTO_API.portoDo('MOSAIC').length > 0, tiplam: /TIPLAM/.test(h),
+        enxofre: /ENXOFRE/.test(h), amonia: /AMONIA/.test(h), fert: /FERTILIZANTES/.test(h), lista: /145,78/.test(h),
+        ruim: /NaN|undefined/.test(h), tam: h.length};
+    }
+  } catch (e) { out.porto = {ok: false, erro: String(e.message || e)}; }
   // caixa do cálculo do Portfólio por Cliente (25/nov/2026): monta para as três origens sem NaN/undefined
   out.calc = {ok: false};
   if (window.BP_CALC) {

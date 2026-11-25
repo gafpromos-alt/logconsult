@@ -2053,7 +2053,26 @@ for _c, _r in _crp.iterrows():
                       "frete_mi": _r["fr"] / 1e6, "manobra_mi": _r["man"] / 1e6, "transbordo_mi": _r["trbd"] / 1e6,
                       "porto_mi": _r.get("Porto", 0) / 1e6, "serv_acess_mi": _r.get("Serviços Acessórios", 0) / 1e6,
                       "tem_painel": _c in _com_painel, "alvo": bool(is_alvo(_c))})
+# ---- Aba Porto do Painel do Cliente (25/nov/2026, pedido do sócio para a Mosaic no TIPLAM) ----
+# Série mensal realizada por cliente × terminal × produto (P&L, realizado=1, 2024 em diante): volume,
+# receita bruta e receita líquida de ICMS, ISS e PIS/COFINS. O painel monta preço por ano, pares no
+# mesmo terminal e produto, e o confronto com as referências públicas de outros terminais
+# (tabela precos_portos_referencia, add_porto_referencias.py).
+_pc_m = q("""SELECT cliente, COALESCE(NULLIF(ativo,''), origem) AS terminal, mercadoria AS produto, ano, mes,
+                    SUM(vol_tu) vol, SUM(rec_total) rec,
+                    SUM(rec_total + COALESCE(imp_icms,0) + COALESCE(imp_iss,0) + COALESCE(imp_pis,0) + COALESCE(imp_cofins,0)) rec_liq
+             FROM vli_pnl WHERE modal='Porto' AND realizado=1 AND ano>=2024
+             GROUP BY cliente, COALESCE(NULLIF(ativo,''), origem), mercadoria, ano, mes HAVING SUM(vol_tu)>0""")
+_pc_m["cliente"] = _pc_m["cliente"].map(canon)
+_pc_m = _pc_m.groupby(["cliente", "terminal", "produto", "ano", "mes"], as_index=False)[["vol", "rec", "rec_liq"]].sum()
+porto_mensal = [[r.cliente, r.terminal, r.produto, int(r.ano), int(r.mes), round(r.vol, 1), round(r.rec, 2), round(r.rec_liq, 2)]
+                for r in _pc_m.itertuples()]
+try:
+    porto_ref = rec(q("SELECT * FROM precos_portos_referencia"))
+except Exception:
+    porto_ref = []
 porto_servicos = {
+    "mensal": porto_mensal, "referencias": porto_ref,
     "porto": rec(pd.DataFrame(_po_rows).round(2)) if _po_rows else [],
     "servicos": rec(_sa_p[_sa_p["rec25_mi"] + _sa_p["rec24_mi"] > 0][
         ["cliente", "servico", "ferrovia", "rec24_mi", "rec25_mi", "var_pct", "alvo"]].round(2)),

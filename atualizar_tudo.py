@@ -53,7 +53,7 @@ ETAPAS_PROCESSO = [
     ("Ficha de Fluxo Geral 2026 (teto, frete, DP e serviços por item, mês a mês)", ["add_ficha_fluxo.py"]),
     ("Premissas, tetos, mercado e portos",
      ["add_premissas_planejamento.py", "add_tetos.py", "add_acessorias_mercado.py",
-      "add_mercado.py", "add_precos_portos.py", "add_premissas_manobra_graos_ferti.py"]),
+      "add_mercado.py", "add_precos_portos.py", "add_porto_referencias.py", "add_premissas_manobra_graos_ferti.py"]),
     ("Market share", ["rebuild_market_share.sh"]),
     ("Custo logístico", ["rebuild_custo_logistico.sh"]),
     ("Projetos por cliente (Painel do Cliente)", ["add_projetos_clientes.py"]),

@@ -244,6 +244,10 @@ def testes_painel():
         ok(tb.get("cardsPrio") == 3, f"Início: {tb.get('cardsPrio')} cartão(ões) de prioridade (esperado 3)")
         ss = ini.get("segueSim") or {}
         ok(ss.get("igual"), f"Início não acompanha a simulação do Painel do Cliente: {ss}")
+    po = d.get("porto") or {}
+    if ok(po.get("ok"), f"aba Porto não montou: {po.get('erro')}"):
+        ok(po.get("temAba") and po.get("tiplam") and po.get("enxofre") and po.get("amonia") and po.get("fert") and po.get("lista")
+           and not po.get("ruim"), f"aba Porto da Mosaic incompleta: {po}")
     cx = d.get("calc") or {}
     if ok(cx.get("ok"), f"caixa do cálculo não montou: {cx.get('erro')}"):
         ok(cx.get("n", 0) >= 100 and not cx.get("ruins"), f"caixa do cálculo com NaN/undefined: {cx.get('ruins')}")

@@ -632,6 +632,7 @@ details.ini-more .panel{margin-top:12px}
             <span class="chip" data-pctab="iso">Isonomia Tarifária</span>
             <span class="chip" data-pctab="retro">Retroativo</span>
             <span class="chip" data-pctab="tetoreg" id="pcChipTetoReg" style="display:none">Teto Regulatório</span>
+            <span class="chip" data-pctab="porto" id="pcChipPorto" style="display:none">Porto</span>
           </span>
           <span class="chip" id="pcPresentToggle" title="Oculta selos internos, ganhos de consultoria e anonimiza nomes de concorrentes — pra projetar na reunião com o cliente">☐ Modo apresentação</span>
           <span class="chip" id="pcExportRel" title="Baixa um HTML só com os números deste cliente e referências de mercado agregadas — sem nomes de outros clientes, sem P&amp;L VLI, sem contatos. Pode ser enviado ao cliente.">⬇ Relatório do cliente</span>
@@ -643,6 +644,7 @@ details.ini-more .panel{margin-top:12px}
       <div id="pcTabIso" style="display:none"></div>
       <div id="pcTabRetro" style="display:none"></div>
       <div id="pcTabTetoReg" style="display:none"></div>
+      <div id="pcTabPorto" style="display:none"></div>
     </div>
   </section>
 
@@ -3273,10 +3275,14 @@ if(D.comparativo && D.comparativo.tarifas){
     const temTetoReg=!!TETO_REG[pcCli];
     const chipTR=document.getElementById('pcChipTetoReg'); if(chipTR) chipTR.style.display=temTetoReg?'':'none';
     if(pcTab==='tetoreg' && !temTetoReg) pcTab='teto';   // trocou pra cliente sem a aba → volta pro teto
+    const temPorto=portoDo(pcCli).length>0;
+    const chipPo=document.getElementById('pcChipPorto'); if(chipPo) chipPo.style.display=temPorto?'':'none';
+    if(pcTab==='porto' && !temPorto) pcTab='teto';
     document.getElementById('pcTabTeto').style.display=pcTab==='teto'?'':'none';
     document.getElementById('pcTabIso').style.display=pcTab==='iso'?'':'none';
     document.getElementById('pcTabRetro').style.display=pcTab==='retro'?'':'none';
     document.getElementById('pcTabTetoReg').style.display=pcTab==='tetoreg'?'':'none';
+    document.getElementById('pcTabPorto').style.display=pcTab==='porto'?'':'none';
   }
 
   /* ================= ABA 1 — TETO TARIFÁRIO (análise detalhada + deltas simuláveis) ================= */
@@ -5289,6 +5295,95 @@ if(D.comparativo && D.comparativo.tarifas){
     return {reg,f,frete,tarifa,tetoBase,volKt,prod,st,segEFVM,segFCA,tetoEFVM,fcaHoje,tetoHoje,
       donors,prodDonor,fcaA,tetoA,refs,fator,fcaFerti,fcaB,tetoB,ganhoA:gan(tetoA),ganhoB:gan(tetoB)};
   }
+
+  /* ================= ABA PORTO (25/nov/2026, pedido do sócio: Mosaic no TIPLAM) =================
+     Preço praticado = receita ÷ volume do P&L da VLI (modal Porto, realizado), por terminal e produto,
+     bruto e líquido de ICMS, ISS e PIS/COFINS. Compara com (1) os outros clientes no mesmo terminal e
+     produto (líquido, nunca o próprio cliente; anonimizados no modo apresentação) e (2) referências
+     públicas de outros terminais do mesmo porto (D.porto_servicos.referencias: tabela publicada,
+     estudo de leilão ou notícia, com fonte e data). O ganho aqui é indicação: não entra nos cartões
+     nem no Início, porque o serviço de porto não é comparável item a item sem o pacote contratado. */
+  // var: pcChips (que chama portoDo) roda no primeiro render, antes desta linha (evita TDZ)
+  var PO_M=((D.porto_servicos||{}).mensal)||[], PO_REF=((D.porto_servicos||{}).referencias)||[];
+  var PO_TERM={TUF:'TIPLAM (Santos, SP)', TPD:'TPD (Vitória, ES)', TMIB:'TMIB (Sergipe)', TPM:'Praia Mole (ES)'};
+  var PO_PORTO={TUF:'Santos', TPD:'Vitória', TMIB:'Sergipe', TPM:'Vitória'};
+  function poTerm(t){ return PO_TERM[t]||t; }
+  const poFam=p=>{ const s=String(p||'').normalize('NFKD').replace(/[̀-ͯ]/g,'').toUpperCase();
+    if(/AMONIA|AMONIACO/.test(s)&&!/SULFATO/.test(s)) return 'AMONIA'; if(/ENXOFRE/.test(s)) return 'ENXOFRE';
+    if(/ROCHA|FOSFATO/.test(s)) return 'ROCHA FOSFATICA'; if(/FERTIL|SULFATO DE AMONIA|UREIA|CLORETO|NPK/.test(s)) return 'FERTILIZANTES'; return s; };
+  function portoDo(c){ return (((D.porto_servicos||{}).mensal)||[]).filter(r=>canonPC(r[0])===c); }
+  var pcPortoTerm={};
+  function pcRenderPorto(){
+    const el=document.getElementById('pcTabPorto'); if(!el) return;
+    const rows=portoDo(pcCli);
+    if(!rows.length){ el.innerHTML='<div class="panel"><div class="desc">Sem receita de porto deste cliente no P&L da VLI.</div></div>'; return; }
+    const porTerm={}; rows.forEach(r=>{ porTerm[r[1]]=(porTerm[r[1]]||0)+r[5]; });
+    const terms=Object.keys(porTerm).sort((a,b)=>porTerm[b]-porTerm[a]);
+    const T=pcPortoTerm[pcCli]&&porTerm[pcPortoTerm[pcCli]]?pcPortoTerm[pcCli]:terms[0]; pcPortoTerm[pcCli]=T;
+    const idxMax=Math.max(...PO_M.filter(r=>r[1]===T).map(r=>r[3]*12+r[4]));
+    const ym=i=>{ const a=Math.floor((i-1)/12), m=i-a*12; return String(m).padStart(2,'0')+'/'+a; };
+    const n2=v=>v==null||!isFinite(v)?'n/d':v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const n1=v=>v==null||!isFinite(v)?'n/d':v.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1});
+    const agg=(lst)=>{ const v=lst.reduce((s,r)=>s+r[5],0), b=lst.reduce((s,r)=>s+r[6],0), l=lst.reduce((s,r)=>s+r[7],0); return {v, b, l, pb:v>0?b/v:null, pl:v>0?l/v:null}; };
+    const meus=rows.filter(r=>r[1]===T);
+    const prods=[...new Set(meus.map(r=>r[2]))].sort((a,b)=>agg(meus.filter(r=>r[2]===b)).v-agg(meus.filter(r=>r[2]===a)).v);
+    const em12=r=>{ const i=r[3]*12+r[4]; return i>idxMax-12&&i<=idxMax; };
+    const lin=prods.map(p=>{
+      const mp=meus.filter(r=>r[2]===p);
+      const a24=agg(mp.filter(r=>r[3]===2024)), a25=agg(mp.filter(r=>r[3]===2025)), a26=agg(mp.filter(r=>r[3]===2026)), u12=agg(mp.filter(em12));
+      // pares: outros clientes no mesmo terminal e produto, últimos 12 meses, líquido
+      const outros={}; PO_M.filter(r=>r[1]===T&&r[2]===p&&canonPC(r[0])!==pcCli&&em12(r)).forEach(r=>{ const c=canonPC(r[0]); (outros[c]=outros[c]||[]).push(r); });
+      const pares=Object.entries(outros).map(([c,l])=>({c, ...agg(l)})).filter(x=>x.v>=1000).sort((a,b)=>a.pl-b.pl);
+      const med=pares.length?(()=>{ const x=pares.map(q=>q.pl).sort((a,b)=>a-b), m=x.length>>1; return x.length%2?x[m]:(x[m-1]+x[m])/2; })():null;
+      const min=pares.length?pares[0].pl:null;
+      const fam=poFam(p);
+      const refs=PO_REF.filter(r=>poFam(r.produto)===fam).sort((a,b)=>((a.porto===PO_PORTO[T])?0:1)-((b.porto===PO_PORTO[T])?0:1));
+      const comp=refs.filter(r=>r.porto===PO_PORTO[T]&&+r.comparavel===1&&r.valor_rs_t>0);
+      const refLiq=r=>r.valor_rs_t*(+r.inclui_tributos===1?(u12.pb>0?u12.pl/u12.pb:1):1);
+      const refMin=comp.length?Math.min(...comp.map(refLiq)):null;
+      const gMed=med!=null&&u12.pl!=null?Math.max(0,u12.pl-med)*u12.v:0, gMin=min!=null&&u12.pl!=null?Math.max(0,u12.pl-min)*u12.v:0;
+      const gRef=refMin!=null&&u12.pl!=null?Math.max(0,u12.pl-refMin)*u12.v:0;
+      return {p, fam, a24, a25, a26, u12, pares, med, min, refs, refMin, gMed, gMin, gRef};
+    });
+    // produto sem movimento nos últimos 12 meses só aparece na tabela por ano
+    const ativos=lin.filter(x=>x.u12.v>0);
+    const nomeCli=c=>escAttr(anon(c));
+    const kpis=ativos.map(x=>`<div class="kpi"><div class="lbl">${escAttr(x.p)}</div><div class="val">R$ ${n2(x.u12.pb)}<small>/t · últimos 12 meses</small></div>
+      <div class="muted" style="font-size:12px;margin-top:4px">líquido R$ ${n2(x.u12.pl)} · ${n1(x.u12.v/1000)} kt · R$ ${n1(x.u12.b/1e6)} mi${x.a25.pb!=null&&x.a24.pb!=null?' · 2025 contra 2024: '+((x.a25.pb/x.a24.pb-1)*100).toFixed(1).replace('.',',')+'%':''}</div></div>`).join('');
+    const tabAnos=`<table><thead><tr><th>Produto</th><th class="num">2024 R$/t</th><th class="num">2025 R$/t</th><th class="num">2026 R$/t (realizado)</th><th class="num">Últimos 12 meses R$/t</th><th class="num">Líquido R$/t</th><th class="num">Volume 12 meses kt</th></tr></thead><tbody>${
+      lin.map(x=>`<tr><td><b>${escAttr(x.p)}</b></td><td class="num">${n2(x.a24.pb)}</td><td class="num">${n2(x.a25.pb)}</td><td class="num">${n2(x.a26.pb)}</td><td class="num"><b>${n2(x.u12.pb)}</b></td><td class="num">${n2(x.u12.pl)}</td><td class="num">${n1(x.u12.v/1000)}</td></tr>`).join('')}</tbody></table>`;
+    const tabPares=ativos.map(x=>`<h3 style="font-size:14px;margin:16px 0 6px">${escAttr(x.p)}: outros clientes no ${escAttr(poTerm(T))}</h3>`+
+      (x.pares.length?`<div class="tbl-wrap" style="max-height:240px"><table><thead><tr><th>Cliente</th><th class="num">Volume 12 meses kt</th><th class="num">R$/t bruto</th><th class="num">R$/t líquido</th></tr></thead><tbody>${
+        [{c:pcCli, ...x.u12, eu:1}, ...x.pares].sort((a,b)=>a.pl-b.pl).map(q=>`<tr${q.eu?' style="background:var(--amber-bg)"':''}><td>${q.eu?'<b>'+escAttr(pcCli)+'</b>':nomeCli(q.c)}</td><td class="num">${n1(q.v/1000)}</td><td class="num">${n2(q.pb)}</td><td class="num">${n2(q.pl)}</td></tr>`).join('')}</tbody></table></div>
+        <div class="desc">Menor par R$ ${n2(x.min)}/t · mediana R$ ${n2(x.med)}/t (líquidos, ${x.pares.length} cliente(s) com 1 mil t ou mais em 12 meses).</div>`
+      :'<div class="desc">Nenhum outro cliente com este produto neste terminal: sem par.</div>')).join('');
+    const tipoLbl={publicado:'tabela publicada', estudo:'estudo de leilão', noticia:'notícia', regulatorio:'tarifa pública'};
+    const refsAll=ativos.flatMap(x=>x.refs.map(r=>({...r, prodCli:x.p})));
+    const tabRefs=refsAll.length?`<div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th>Produto</th><th>Porto</th><th>Terminal ou fonte</th><th>Serviço coberto</th><th class="num">R$/t</th><th>Data</th><th>Tipo</th><th>Comparável</th><th>Fonte</th></tr></thead><tbody>${
+      refsAll.map(r=>`<tr><td>${escAttr(r.prodCli)}</td><td>${escAttr(r.porto||'')}</td><td><b>${escAttr(r.terminal||'')}</b></td><td class="muted" style="white-space:normal;font-size:12px">${escAttr(r.servico||'')}${r.obs?'<br>'+escAttr(r.obs):''}</td>
+        <td class="num">${r.valor_rs_t!=null?n2(r.valor_rs_t):'n/d'}${+r.inclui_tributos===1?'<br><span class="muted" style="font-size:10px">com tributos</span>':''}</td><td class="mono">${escAttr(r.data_ref||'')}</td>
+        <td>${escAttr(tipoLbl[r.tipo]||r.tipo||'')}</td><td>${+r.comparavel===1?'sim':'<span class="muted">não</span>'}</td>
+        <td style="font-size:12px">${r.url?`<a href="${escAttr(r.url)}" target="_blank" rel="noopener">${escAttr(r.fonte||'link')}</a>`:escAttr(r.fonte||'')}</td></tr>`).join('')}</tbody></table></div>`
+      :`<div class="desc">Sem referência pública cadastrada para ${escAttr(PO_PORTO[T]||T)}.</div>`;
+    const tabGanho=`<table><thead><tr><th>Produto</th><th class="num">Praticado líquido R$/t</th><th class="num">Mediana dos pares</th><th class="num">Menor par</th><th class="num">Lista do terminal (comparável)</th><th class="num">Pago ÷ lista</th><th class="num">Indicação, mediana</th><th class="num">Indicação, menor par</th><th class="num">Indicação, referência</th></tr></thead><tbody>${
+      ativos.map(x=>`<tr><td><b>${escAttr(x.p)}</b></td><td class="num">${n2(x.u12.pl)}</td><td class="num">${n2(x.med)}</td><td class="num">${n2(x.min)}</td><td class="num">${n2(x.refMin)}</td><td class="num">${x.refMin&&x.u12.pb?((x.u12.pb/x.refMin)*100).toFixed(0)+'%':'n/d'}</td>
+        <td class="num">${x.gMed>0?BRLmi(x.gMed):'zero'}</td><td class="num">${x.gMin>0?BRLmi(x.gMin):'zero'}</td><td class="num">${x.gRef>0?BRLmi(x.gRef):(x.refMin==null?'sem referência':'zero')}</td></tr>`).join('')}</tbody></table>`;
+    el.innerHTML=`<div class="panel">
+      <h2>Porto: ${escAttr(pcCli)}${terms.length>1?` <select id="pcPortoTerm" class="mono" style="margin-left:10px">${terms.map(t=>`<option value="${escAttr(t)}"${t===T?' selected':''}>${escAttr(poTerm(t))}</option>`).join('')}</select>`:' · '+escAttr(poTerm(T))}</h2>
+      <div class="desc">Preço praticado = receita ÷ volume do serviço de porto no P&L da VLI (realizado até ${ym(idxMax)}). Bruto como faturado; líquido sem ICMS, ISS e PIS/COFINS, base da comparação. O pacote de serviço (descarga, armazenagem, expedição) não vem aberto no P&L.</div>
+      <div class="kpis" style="margin-top:10px">${kpis}</div>
+      <h3 style="font-size:14px;margin:18px 0 6px">Preço por ano</h3><div class="tbl-wrap">${tabAnos}</div>
+      ${tabPares}
+      <h3 style="font-size:14px;margin:18px 0 6px">Referências de mercado (${escAttr(PO_PORTO[T]||T)} primeiro, outros portos como contexto)</h3>
+      <div class="desc">Preço publicado de outros terminais, premissa de estudo de leilão ou notícia, com data e fonte. "Comparável" = serviço equivalente ao pacote de importação (descarga, armazenagem e expedição). Referência com tributos é trazida ao líquido pela mesma proporção do cliente. Em Santos nenhum outro terminal de fertilizantes, enxofre ou amônia publica tabela (pesquisa de 25/nov/2026): a referência pública é a lista do próprio terminal.</div>
+      ${tabRefs}
+      <h3 style="font-size:14px;margin:18px 0 6px">Indicação de ganho por ano</h3>
+      <div class="desc">(praticado líquido − referência) × volume dos últimos 12 meses. Indicação para a negociação do pacote de porto: fica fora dos cartões e do Início.</div>
+      <div class="tbl-wrap">${tabGanho}</div>
+    </div>`;
+    const sel=document.getElementById('pcPortoTerm'); if(sel) sel.onchange=()=>{ pcPortoTerm[pcCli]=sel.value; pcRenderPorto(); };
+  }
+  window.PORTO_API={portoDo, render:()=>pcRenderPorto()};
   function pcRenderTetoReg(){
     const el=document.getElementById('pcTabTetoReg'); if(!el) return;
     const reg=TETO_REG[pcCli]; if(!reg){ el.innerHTML='<div class="panel"><div class="muted" style="padding:12px 4px">Sem análise de teto regulatório multi-ferrovia pra este cliente.</div></div>'; return; }
@@ -5382,11 +5477,11 @@ if(D.comparativo && D.comparativo.tarifas){
       document.getElementById('pcGanhosPotenciais').innerHTML='';
       document.getElementById('pcTabTeto').style.display='';
       document.getElementById('pcTabTeto').innerHTML=pcSemCuradoriaHTML();
-      ['pcTabIso','pcTabRetro','pcTabTetoReg'].forEach(id=>{ const el=document.getElementById(id); if(el){ el.style.display='none'; el.innerHTML=''; } });
+      ['pcTabIso','pcTabRetro','pcTabTetoReg','pcTabPorto'].forEach(id=>{ const el=document.getElementById(id); if(el){ el.style.display='none'; el.innerHTML=''; } });
       return;
     }
     pcRenderGanhos();
-    if(pcTab==='teto') pcRenderTeto(); else if(pcTab==='iso') pcRenderIso(); else if(pcTab==='tetoreg') pcRenderTetoReg(); else pcRenderRetro();
+    if(pcTab==='teto') pcRenderTeto(); else if(pcTab==='iso') pcRenderIso(); else if(pcTab==='tetoreg') pcRenderTetoReg(); else if(pcTab==='porto') pcRenderPorto(); else pcRenderRetro();
   }
   { const tg=document.getElementById('pcPresentToggle');
     if(tg) tg.onclick=function(){ pcPresent=!pcPresent; document.body.classList.toggle('pc-present',pcPresent);
