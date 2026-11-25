@@ -127,6 +127,9 @@ esses arquivos.
   mudança que toque volume/produto/rota.
 
 ## Convenções
+- **Git (25/nov/2026):** ao fim de cada entrega, com `atualizar_tudo.py` em 0 falhas, o Claude faz commit e
+  `git push` (autorizado pelo usuário) e avisa o que subiu. Nunca force-push; banco e painel compilado
+  continuam fora do Git.
 - Sempre preferir 0/"sem dado" honesto a qualquer número inventado ou emprestado de
   outro fluxo/rota/cliente — este é o bug recorrente mais caro já encontrado neste projeto.
 - Nunca agrupar (pool) produtos genuinamente diferentes pra "resolver" um match —
